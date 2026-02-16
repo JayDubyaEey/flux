@@ -229,6 +229,7 @@ func (m model) handleRoleSelect(key string) (tea.Model, tea.Cmd) {
 			m.selected[i] = !allSelected
 		}
 	case "enter":
+		m.message = "" // clear any stale message before running
 		return m.executePlaybook()
 	case "esc":
 		m.screen = screenMain
@@ -290,13 +291,17 @@ func (m model) handleAnyKeyBack(key string) (tea.Model, tea.Cmd) {
 
 func (m model) handleConfigEdit(key string) (tea.Model, tea.Cmd) {
 	if m.editDone {
-		// Save and go back
 		switch key {
-		case "enter", "esc":
+		case "enter":
+			// Save on enter
 			m.applyEditFields()
 			if err := config.Save(m.cfg); err != nil {
 				m.message = fmt.Sprintf("Error saving: %v", err)
 			}
+			m.screen = screenConfigMenu
+			m.cursor = 0
+		case "esc":
+			// Cancel on esc — discard changes
 			m.screen = screenConfigMenu
 			m.cursor = 0
 		}
@@ -349,19 +354,20 @@ func (m *model) initEditFields() {
 		{"email", "Email", cfg.Email},
 		{"git_name", "Git Name", cfg.GitName},
 		{"git_email", "Git Email", cfg.GitEmail},
-		{"git_https", "GitHub HTTPS (true/false)", boolStr(cfg.GitHTTPS)},
+		{"git_https", "GitHub HTTPS (true/false)", config.BoolStr(cfg.GitHTTPS)},
 		{"default_shell", "Shell (bash/zsh)", cfg.DefaultShell},
-		{"install_podman", "Install Podman (true/false)", boolStr(cfg.InstallPodman)},
+		{"install_podman", "Install Podman (true/false)", config.BoolStr(cfg.InstallPodman)},
 		{"podman_wsl_distro", "Podman WSL Distro", cfg.PodmanWSLDistro},
 		{"podman_wsl_host", "Podman WSL Host", cfg.PodmanWSLHost},
 		{"podman_wsl_port", "Podman WSL Port", cfg.PodmanWSLPort},
-		{"install_bun", "Install Bun (true/false)", boolStr(cfg.InstallBun)},
-		{"install_go", "Install Go (true/false)", boolStr(cfg.InstallGo)},
-		{"go_version", "Go Version", cfg.GoVersion},
-		{"install_dotnet", "Install .NET (true/false)", boolStr(cfg.InstallDotnet)},
-		{"dotnet_version", ".NET SDK Version", cfg.DotnetVersion},
-		{"install_python", "Install Python (true/false)", boolStr(cfg.InstallPython)},
-		{"python_version", "Python Version", cfg.PythonVersion},
+		{"install_bun", "Install Bun (true/false)", config.BoolStr(cfg.InstallBun)},
+		{"install_go", "Install Go (true/false)", config.BoolStr(cfg.InstallGo)},
+		{"go_version", "Go Version (latest)", cfg.GoVersion},
+		{"install_dotnet", "Install .NET (true/false)", config.BoolStr(cfg.InstallDotnet)},
+		{"dotnet_version", ".NET Ver (latest)", cfg.DotnetVersion},
+		{"install_python", "Install Python (true/false)", config.BoolStr(cfg.InstallPython)},
+		{"python_version", "Python Ver (latest)", cfg.PythonVersion},
+		{"install_k9s", "Install k9s (true/false)", config.BoolStr(cfg.InstallK9s)},
 		{"extra_packages", "Extra Packages (csv)", strings.Join(cfg.ExtraPackages, ", ")},
 	}
 	m.editInput = m.editFields[0].value
@@ -407,6 +413,8 @@ func (m *model) applyEditFields() {
 			m.cfg.InstallPython = parseBool(f.value)
 		case "python_version":
 			m.cfg.PythonVersion = f.value
+		case "install_k9s":
+			m.cfg.InstallK9s = parseBool(f.value)
 		case "extra_packages":
 			m.cfg.ExtraPackages = nil
 			for _, p := range strings.Split(f.value, ",") {
@@ -450,8 +458,10 @@ func (m model) executePlaybook() (model, tea.Cmd) {
 	dryRun := m.dryRun
 	cfg := m.cfg
 
-	// Run playbook in a goroutine so TUI can show status
-	return m, func() tea.Msg {
+	// Build the ansible-playbook command to hand off terminal control.
+	// tea.ExecProcess releases the alt-screen so ansible can use stdin
+	// (required for --ask-become-pass) and stdout directly.
+	cmdFunc := func() tea.Msg {
 		if err := ansible.EnsureInstalled(); err != nil {
 			return playbookDoneMsg{err: err}
 		}
@@ -463,6 +473,8 @@ func (m model) executePlaybook() (model, tea.Cmd) {
 		err = ansible.RunPlaybook(ansibleDir, extraVars, tagStr, dryRun)
 		return playbookDoneMsg{err: err}
 	}
+
+	return m, cmdFunc
 }
 
 // --- View ---
@@ -515,8 +527,7 @@ func (m model) View() string {
 			b.WriteString(fmt.Sprintf("%s%s %s\n", cursor, check, style.Render(role)))
 		}
 		if m.message != "" {
-			b.WriteString("\n" + errorStyle.Render(m.message))
-			m.message = ""
+			b.WriteString("\n" + errorStyle.Render(m.message) + "\n")
 		}
 		b.WriteString(helpStyle.Render("↑/↓ navigate • space toggle • a all/none • enter run • esc back"))
 
@@ -584,13 +595,6 @@ func (m model) View() string {
 }
 
 // --- helpers ---
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
 
 func parseBool(s string) bool {
 	s = strings.TrimSpace(strings.ToLower(s))

@@ -1,9 +1,4 @@
 ---
-- name: Update apt cache
-  apt:
-    update_cache: yes
-    cache_valid_time: 3600
-
 - name: Install essential packages
   apt:
     name:
@@ -25,7 +20,6 @@
 
 - name: Install extra packages
   apt:
-    name: "{{ item }}"
+    name: "{{ extra_packages }}"
     state: present
-  loop: "{{ extra_packages.split(',') | select | list }}"
   when: extra_packages | length > 0

@@ -1,0 +1,18 @@
+---
+# --- Bun runtime ---
+
+- name: Check if Bun is installed
+  become: true
+  become_user: "{{ username }}"
+  command: bash -lc "bun --version"
+  register: bun_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Bun
+  become: true
+  become_user: "{{ username }}"
+  shell: curl -fsSL https://bun.sh/install | bash
+  args:
+    creates: "/home/{{ username }}/.bun/bin/bun"
+  when: bun_check.rc != 0

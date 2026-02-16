@@ -1,0 +1,51 @@
+---
+# --- Podman (remote client → separate WSL instance) ---
+
+- name: Check if Podman is installed
+  command: podman --version
+  register: podman_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Podman remote client
+  when: podman_check.rc != 0
+  block:
+    - name: Install podman-remote and podman-compose
+      apt:
+        name:
+          - podman-remote
+          - podman-compose
+        state: present
+
+- name: Configure Podman remote connection
+  become: true
+  become_user: "{{ username }}"
+  block:
+    - name: Ensure podman config directory exists
+      file:
+        path: "/home/{{ username }}/.config/containers"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy containers.conf with remote connection
+      copy:
+        dest: "/home/{{ username }}/.config/containers/containers.conf"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          [engine]
+          remote = true
+          [engine.service_destinations]
+            [engine.service_destinations.{{ podman_wsl_distro }}]
+            uri = "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock"
+            identity = "/home/{{ username }}/.ssh/id_ed25519"
+
+    - name: Deploy podman-connections.conf
+      copy:
+        dest: "/home/{{ username }}/.config/containers/podman-connections.conf"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          {"Connection": {"Default": "{{ podman_wsl_distro }}", "Connections": {"{{ podman_wsl_distro }}": {"URI": "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock", "Identity": "/home/{{ username }}/.ssh/id_ed25519"}}}}

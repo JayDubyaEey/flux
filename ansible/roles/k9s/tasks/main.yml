@@ -1,0 +1,39 @@
+---
+# --- k9s (Kubernetes TUI) ---
+
+- name: Check if k9s is installed
+  command: k9s version --short
+  register: k9s_check
+  failed_when: false
+  changed_when: false
+
+- name: Install k9s
+  when: k9s_check.rc != 0
+  block:
+    - name: Get latest k9s release URL
+      shell: curl -fsSL https://api.github.com/repos/derailed/k9s/releases/latest | grep -o 'https://.*k9s_Linux_amd64.tar.gz' | head -1
+      register: k9s_url
+      changed_when: false
+
+    - name: Download k9s
+      get_url:
+        url: "{{ k9s_url.stdout }}"
+        dest: /tmp/k9s.tar.gz
+        mode: "0644"
+
+    - name: Extract k9s
+      unarchive:
+        src: /tmp/k9s.tar.gz
+        dest: /usr/local/bin
+        remote_src: yes
+        extra_opts: [k9s]
+
+    - name: Set k9s permissions
+      file:
+        path: /usr/local/bin/k9s
+        mode: "0755"
+
+    - name: Clean up k9s archive
+      file:
+        path: /tmp/k9s.tar.gz
+        state: absent

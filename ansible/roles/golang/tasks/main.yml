@@ -1,0 +1,58 @@
+---
+# --- Go toolchain ---
+
+# Resolve "latest" to the actual latest stable Go version from go.dev.
+- name: Resolve latest Go version
+  when: go_version == "latest"
+  block:
+    - name: Fetch latest Go version from go.dev
+      uri:
+        url: https://go.dev/VERSION?m=text
+        return_content: yes
+      register: go_latest_raw
+      failed_when: false
+
+    - name: Set resolved Go version
+      set_fact:
+        go_version: "{{ go_latest_raw.content | regex_search('go([0-9.]+)', '\\1') | first }}"
+      when: go_latest_raw is succeeded and go_latest_raw.content is defined
+
+    - name: Fallback Go version if API unreachable
+      set_fact:
+        go_version: "1.23.4"
+      when: go_latest_raw is failed or go_latest_raw.content is not defined
+
+- name: Display target Go version
+  debug:
+    msg: "Target Go version: {{ go_version }}"
+
+- name: Check if Go is installed
+  command: /usr/local/go/bin/go version
+  register: go_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Go {{ go_version }}
+  when: go_check.rc != 0 or go_version not in go_check.stdout | default('')
+  block:
+    - name: Download Go
+      get_url:
+        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: /tmp/go.tar.gz
+        mode: "0644"
+
+    - name: Remove old Go installation
+      file:
+        path: /usr/local/go
+        state: absent
+
+    - name: Extract Go
+      unarchive:
+        src: /tmp/go.tar.gz
+        dest: /usr/local
+        remote_src: yes
+
+    - name: Clean up Go archive
+      file:
+        path: /tmp/go.tar.gz
+        state: absent

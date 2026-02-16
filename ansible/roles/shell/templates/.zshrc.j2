@@ -25,15 +25,14 @@ if [ -d /usr/local/go/bin ]; then
     export PATH=$PATH:$(go env GOPATH)/bin
 fi
 
-# fnm (Node version manager)
-if [ -d "$HOME/.local/share/fnm" ]; then
-    export PATH="$HOME/.local/share/fnm:$PATH"
-    eval "$(fnm env)"
-fi
+{% if install_podman | default(false) | bool %}
+# Podman → Docker alias
+alias docker="podman"
+{% endif %}
 
-# Rust
-if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
+# Bun
+if [ -d "$HOME/.bun/bin" ]; then
+    export PATH="$HOME/.bun/bin:$PATH"
 fi
 
 # Local bin

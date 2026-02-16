@@ -61,8 +61,7 @@ func FindAnsibleDir() (string, error) {
 
 	// Relative to CWD
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, "ansible"))
-		// Walk up from CWD
+		// Walk up from CWD (includes CWD itself on first iteration)
 		dir := cwd
 		for i := 0; i < 10; i++ {
 			candidates = append(candidates, filepath.Join(dir, "ansible"))
@@ -84,7 +83,7 @@ func FindAnsibleDir() (string, error) {
 }
 
 // RunPlaybook executes ansible-playbook with the given options.
-func RunPlaybook(ansibleDir string, extraVars map[string]string, tags string, dryRun bool) error {
+func RunPlaybook(ansibleDir string, extraVars map[string]interface{}, tags string, dryRun bool) error {
 	playbook := filepath.Join(ansibleDir, "playbook.yml")
 	inventory := filepath.Join(ansibleDir, "inventory.ini")
 
