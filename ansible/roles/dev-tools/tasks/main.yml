@@ -1,0 +1,204 @@
+---
+# --- Podman (remote client → separate WSL instance) ---
+- name: Check if Podman is installed
+  command: podman --version
+  register: podman_check
+  failed_when: false
+  changed_when: false
+  when: install_podman == "true"
+
+- name: Install Podman remote client
+  when: install_podman == "true" and podman_check.rc != 0
+  block:
+    - name: Install podman-remote and podman-compose
+      apt:
+        update_cache: yes
+        name:
+          - podman-remote
+          - podman-compose
+        state: present
+
+- name: Configure Podman remote connection
+  when: install_podman == "true"
+  become: true
+  become_user: "{{ username }}"
+  block:
+    - name: Ensure podman config directory exists
+      file:
+        path: "/home/{{ username }}/.config/containers"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy containers.conf with remote connection
+      copy:
+        dest: "/home/{{ username }}/.config/containers/containers.conf"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          [engine]
+          remote = true
+          [engine.service_destinations]
+            [engine.service_destinations.{{ podman_wsl_distro }}]
+            uri = "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock"
+            identity = "/home/{{ username }}/.ssh/id_ed25519"
+
+    - name: Deploy podman-connections.conf
+      copy:
+        dest: "/home/{{ username }}/.config/containers/podman-connections.conf"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0644"
+        content: |
+          {"Connection": {"Default": "{{ podman_wsl_distro }}", "Connections": {"{{ podman_wsl_distro }}": {"URI": "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock", "Identity": "/home/{{ username }}/.ssh/id_ed25519"}}}}
+
+    - name: Add alias for docker → podman
+      lineinfile:
+        path: "/home/{{ username }}/.bashrc"
+        line: 'alias docker="podman"'
+        create: yes
+
+    - name: Add alias for docker → podman (zsh)
+      lineinfile:
+        path: "/home/{{ username }}/.zshrc"
+        line: 'alias docker="podman"'
+        create: yes
+
+# --- Go ---
+- name: Check if Go is installed
+  command: /usr/local/go/bin/go version
+  register: go_check
+  failed_when: false
+  changed_when: false
+  when: install_go == "true"
+
+- name: Install Go {{ go_version }}
+  when: install_go == "true" and (go_check.rc != 0 or go_version not in go_check.stdout | default(''))
+  block:
+    - name: Download Go
+      get_url:
+        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        dest: /tmp/go.tar.gz
+        mode: "0644"
+
+    - name: Remove old Go installation
+      file:
+        path: /usr/local/go
+        state: absent
+
+    - name: Extract Go
+      unarchive:
+        src: /tmp/go.tar.gz
+        dest: /usr/local
+        remote_src: yes
+
+    - name: Clean up Go archive
+      file:
+        path: /tmp/go.tar.gz
+        state: absent
+
+# --- Node.js (via NodeSource) ---
+- name: Check if Node.js is installed
+  command: node --version
+  register: node_check
+  failed_when: false
+  changed_when: false
+  when: install_node == "true"
+
+- name: Install Node.js {{ node_version }}
+  when: install_node == "true" and (node_check.rc != 0 or ('v' + node_version) not in node_check.stdout | default(''))
+  block:
+    - name: Download NodeSource setup script
+      get_url:
+        url: "https://deb.nodesource.com/setup_{{ node_version }}.x"
+        dest: /tmp/nodesource_setup.sh
+        mode: "0755"
+
+    - name: Run NodeSource setup script
+      command: bash /tmp/nodesource_setup.sh
+
+    - name: Install Node.js and npm
+      apt:
+        update_cache: yes
+        name:
+          - nodejs
+        state: present
+
+    - name: Verify npm is installed
+      command: npm --version
+      changed_when: false
+
+    - name: Clean up NodeSource setup script
+      file:
+        path: /tmp/nodesource_setup.sh
+        state: absent
+
+# --- Bun ---
+- name: Check if Bun is installed
+  become: true
+  become_user: "{{ username }}"
+  command: bash -lc "bun --version"
+  register: bun_check
+  failed_when: false
+  changed_when: false
+  when: install_node == "true"
+
+- name: Install Bun
+  become: true
+  become_user: "{{ username }}"
+  shell: curl -fsSL https://bun.sh/install | bash
+  when: install_node == "true" and bun_check.rc != 0
+
+# --- .NET SDK ---
+- name: Check if dotnet is installed
+  command: dotnet --version
+  register: dotnet_check
+  failed_when: false
+  changed_when: false
+  when: install_dotnet == "true"
+
+- name: Install .NET SDK {{ dotnet_version }}
+  when: install_dotnet == "true" and (dotnet_check.rc != 0 or dotnet_version not in dotnet_check.stdout | default(''))
+  block:
+    - name: Install Microsoft package signing key and repo
+      shell: |
+        wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
+        dpkg -i /tmp/packages-microsoft-prod.deb
+        rm /tmp/packages-microsoft-prod.deb
+
+    - name: Install .NET SDK
+      apt:
+        update_cache: yes
+        name: "dotnet-sdk-{{ dotnet_version }}"
+        state: present
+
+# --- Python ---
+- name: Install Python
+  when: install_python == "true"
+  block:
+    - name: Add deadsnakes PPA for latest Python
+      apt_repository:
+        repo: ppa:deadsnakes/ppa
+        state: present
+        update_cache: yes
+
+    - name: Install Python {{ python_version }} and essentials
+      apt:
+        name:
+          - "python{{ python_version }}"
+          - "python{{ python_version }}-venv"
+          - "python{{ python_version }}-dev"
+          - "python{{ python_version }}-distutils"
+        state: present
+
+    - name: Set python{{ python_version }} as 'python' via update-alternatives
+      community.general.alternatives:
+        name: python
+        link: /usr/bin/python
+        path: "/usr/bin/python{{ python_version }}"
+        priority: 100
+
+    - name: Install pip for Python {{ python_version }}
+      shell: "python{{ python_version }} -m ensurepip --upgrade || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python{{ python_version }}"
+      args:
+        creates: "/usr/bin/pip{{ python_version }}"
