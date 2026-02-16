@@ -45,7 +45,6 @@
         url: "https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
         dest: /tmp/go.tar.gz
         mode: "0644"
-        follow_redirects: all
 
     - name: Remove old Go installation
       file:
