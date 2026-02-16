@@ -62,10 +62,20 @@ fi
 echo ""
 echo "✓ flux installed to $BIN"
 echo ""
-echo "Launch the interactive TUI:"
+echo "To use flux, reload your shell or run this command:"
+echo "  source ~/.$(basename $SHELL)rc"
+echo ""
+echo "Then launch the interactive TUI:"
 echo "  flux"
 echo ""
 echo "Or run directly:"
 echo "  flux run             # apply setup"
 echo "  flux run --dry-run   # preview without changes"
 echo ""
+
+# Attempt to reload shell config for current session
+if [ -n "$BASH_VERSION" ]; then
+    . "$HOME/.bashrc" 2>/dev/null || true
+elif [ -n "$ZSH_VERSION" ]; then
+    . "$HOME/.zshrc" 2>/dev/null || true
+fi
