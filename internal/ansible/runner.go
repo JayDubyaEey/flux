@@ -162,7 +162,7 @@ func EnsureInstalledStreaming(onOutput OutputFunc) error {
 
 	for _, args := range cmds {
 		onOutput(fmt.Sprintf("→ %s", strings.Join(args, " ")))
-		if err := runCmdStreaming(args, "", nil, onOutput); err != nil {
+		if err := runCmdStreaming(args, "", onOutput); err != nil {
 			return fmt.Errorf("command %q failed: %w", strings.Join(args, " "), err)
 		}
 	}
@@ -203,12 +203,27 @@ func RunPlaybookStreaming(ansibleDir string, extraVars map[string]interface{}, t
 		args = append(args, "--check", "--diff")
 	}
 
-	// If we have a password, feed it via stdin instead of --ask-become-pass
-	var stdinData []byte
+	// If we have a password, write it to a temp file for --become-password-file
 	if os.Getuid() != 0 {
 		if becomePass != "" {
-			args = append(args, "--become-password-file", "/dev/stdin")
-			stdinData = []byte(becomePass)
+			tmpFile, err := os.CreateTemp("", "flux-become-*")
+			if err != nil {
+				return fmt.Errorf("failed to create temp password file: %w", err)
+			}
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.WriteString(becomePass); err != nil {
+				tmpFile.Close()
+				return fmt.Errorf("failed to write temp password file: %w", err)
+			}
+			tmpFile.Close()
+
+			// Restrict permissions to owner-only
+			if err := os.Chmod(tmpFile.Name(), 0600); err != nil {
+				return fmt.Errorf("failed to chmod temp password file: %w", err)
+			}
+
+			args = append(args, "--become-password-file", tmpFile.Name())
 		} else {
 			args = append(args, "--ask-become-pass")
 		}
@@ -221,13 +236,13 @@ func RunPlaybookStreaming(ansibleDir string, extraVars map[string]interface{}, t
 	onOutput(fmt.Sprintf("[%s] ansible-playbook %s", mode, strings.Join(args, " ")))
 	onOutput("")
 
-	return runCmdStreaming([]string{"ansible-playbook"}, ansibleDir, stdinData, onOutput, args[0:]...)
+	return runCmdStreaming([]string{"ansible-playbook"}, ansibleDir, onOutput, args[0:]...)
 }
 
 // runCmdStreaming runs a command, piping merged stdout+stderr line-by-line to onOutput.
 // cmdAndArgs is the set of arguments; if extraArgs is provided they are used as the
 // full arg list instead of cmdAndArgs[1:].
-func runCmdStreaming(cmdAndArgs []string, dir string, stdinData []byte, onOutput OutputFunc, extraArgs ...string) error {
+func runCmdStreaming(cmdAndArgs []string, dir string, onOutput OutputFunc, extraArgs ...string) error {
 	name := cmdAndArgs[0]
 	var args []string
 	if len(extraArgs) > 0 {
@@ -241,11 +256,6 @@ func runCmdStreaming(cmdAndArgs []string, dir string, stdinData []byte, onOutput
 		cmd.Dir = dir
 	}
 	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8", "LANG=C.UTF-8", "ANSIBLE_FORCE_COLOR=0", "ANSIBLE_NOCOLOR=1")
-
-	// Feed password via stdin if provided
-	if len(stdinData) > 0 {
-		cmd.Stdin = strings.NewReader(string(stdinData))
-	}
 
 	// Merge stdout and stderr into a single pipe
 	pr, pw := io.Pipe()
