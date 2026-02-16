@@ -15,6 +15,11 @@
 [push]
     autoSetupRemote = true
 
+{% if git_https | default('true') | lower == 'true' %}
+[url "https://github.com/"]
+    insteadOf = git@github.com:
+{% endif %}
+
 [alias]
     st = status
     co = checkout
