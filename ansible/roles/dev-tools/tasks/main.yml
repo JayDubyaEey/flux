@@ -152,7 +152,6 @@
           - "python{{ python_version }}"
           - "python{{ python_version }}-venv"
           - "python{{ python_version }}-dev"
-          - "python{{ python_version }}-distutils"
         state: present
 
     - name: Set python{{ python_version }} as 'python' via update-alternatives
