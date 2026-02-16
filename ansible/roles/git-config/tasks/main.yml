@@ -1,0 +1,8 @@
+---
+- name: Deploy .gitconfig
+  template:
+    src: .gitconfig.j2
+    dest: "/home/{{ username }}/.gitconfig"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: "0644"

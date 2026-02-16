@@ -1,0 +1,41 @@
+---
+- name: Flux - WSL Setup
+  hosts: localhost
+  become: true
+  gather_facts: true
+
+  vars:
+    # Defaults — overridden by extra vars from the Go CLI
+    username: "{{ ansible_user_id }}"
+    email: ""
+    git_name: "{{ username }}"
+    git_email: "{{ email }}"
+    default_shell: zsh
+    install_podman: "true"
+    podman_wsl_distro: "podman-machine"
+    podman_wsl_host: "localhost"
+    podman_wsl_port: "22"
+    podman_wsl_user: "{{ username }}"
+    install_node: "true"
+    node_version: "22"
+    install_go: "true"
+    go_version: "1.23"
+    install_dotnet: "true"
+    dotnet_version: "8.0"
+    install_python: "true"
+    python_version: "3.13"
+    extra_packages: ""
+
+  roles:
+    - role: base
+      tags: [base]
+
+    - role: git-config
+      tags: [git-config]
+
+    - role: shell
+      tags: [shell]
+      when: default_shell == "zsh"
+
+    - role: dev-tools
+      tags: [dev-tools]

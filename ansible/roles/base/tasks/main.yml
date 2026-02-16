@@ -1,0 +1,31 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install essential packages
+  apt:
+    name:
+      - build-essential
+      - curl
+      - wget
+      - git
+      - unzip
+      - zip
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - tree
+      - make
+      - cmake
+    state: present
+
+- name: Install extra packages
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ extra_packages.split(',') | select | list }}"
+  when: extra_packages | length > 0
