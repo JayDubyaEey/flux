@@ -26,6 +26,13 @@
     python_version: "3.13"
     extra_packages: ""
 
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: always
+
   roles:
     - role: base
       tags: [base]
