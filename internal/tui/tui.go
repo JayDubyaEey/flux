@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -23,6 +24,7 @@ const (
 	screenConfigMenu
 	screenConfigShow
 	screenConfigEdit
+	screenPassword
 	screenRunning
 	screenDone
 )
@@ -59,6 +61,10 @@ type model struct {
 	message  string
 	quitting bool
 
+	// Terminal dimensions
+	width  int
+	height int
+
 	// Role selection
 	roles    []string
 	selected map[int]bool
@@ -75,6 +81,16 @@ type model struct {
 
 	// First-run: config edit was triggered because no config file existed
 	firstRun bool
+
+	// Password prompt
+	password     string
+	passwordMask bool
+	needsPass    bool // true when uid != 0
+
+	// Ansible output viewport
+	viewport    viewport.Model
+	outputLines []string
+	autoScroll  bool
 }
 
 type editField struct {
@@ -92,11 +108,20 @@ func initialModel() model {
 
 	cfg, err := config.Load()
 
+	vp := viewport.New(80, 20)
+	vp.Style = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accentColor).
+		Padding(0, 1)
+
 	m := model{
-		screen:   screenMain,
-		roles:    roles,
-		selected: sel,
-		cfg:      cfg,
+		screen:     screenMain,
+		roles:      roles,
+		selected:   sel,
+		cfg:        cfg,
+		viewport:   vp,
+		autoScroll: true,
+		needsPass:  os.Getuid() != 0,
 	}
 
 	// No config file on disk → start on the TUI config-edit screen
@@ -115,6 +140,7 @@ func initialModel() model {
 
 type playbookDoneMsg struct{ err error }
 type updateDoneMsg struct{ err error }
+type playbookOutputMsg struct{ line string }
 
 // --- bubbletea interface ---
 
@@ -124,20 +150,45 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		// Reserve space for header (2), status line (1), help (2), border (2)
+		vpHeight := m.height - 8
+		if vpHeight < 5 {
+			vpHeight = 5
+		}
+		vpWidth := m.width - 4
+		if vpWidth < 20 {
+			vpWidth = 20
+		}
+		m.viewport.Width = vpWidth
+		m.viewport.Height = vpHeight
+		if m.screen == screenRunning || m.screen == screenDone {
+			m.syncViewport()
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case playbookOutputMsg:
+		m.outputLines = append(m.outputLines, msg.line)
+		m.syncViewport()
+		return m, nil
 	case playbookDoneMsg:
 		m.screen = screenDone
 		m.err = msg.err
 		if msg.err != nil {
+			m.outputLines = append(m.outputLines, "", fmt.Sprintf("✗ Playbook failed: %v", msg.err))
 			m.message = fmt.Sprintf("Playbook failed: %v", msg.err)
 		} else {
 			mode := "applied"
 			if m.dryRun {
 				mode = "checked (dry run)"
 			}
+			m.outputLines = append(m.outputLines, "", fmt.Sprintf("✓ Setup %s successfully!", mode))
 			m.message = fmt.Sprintf("Setup %s successfully!", mode)
 		}
+		m.syncViewport()
 		return m, nil
 	case updateDoneMsg:
 		m.screen = screenDone
@@ -150,6 +201,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m *model) syncViewport() {
+	content := strings.Join(m.outputLines, "\n")
+	m.viewport.SetContent(content)
+	if m.autoScroll {
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -169,10 +228,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRoleSelect(key)
 	case screenConfigMenu:
 		return m.handleConfigMenu(key)
-	case screenConfigShow, screenDone:
+	case screenConfigShow:
 		return m.handleAnyKeyBack(key)
+	case screenDone:
+		return m.handleDoneScreen(key)
 	case screenConfigEdit:
 		return m.handleConfigEdit(key)
+	case screenPassword:
+		return m.handlePasswordScreen(key)
+	case screenRunning:
+		return m.handleRunningScreen(key)
 	}
 
 	return m, nil
@@ -299,6 +364,67 @@ func (m model) handleAnyKeyBack(key string) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.err = nil
 		m.message = ""
+	}
+	return m, nil
+}
+
+func (m model) handleDoneScreen(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		m.autoScroll = false
+		m.viewport.LineUp(1)
+	case "down", "j":
+		m.autoScroll = false
+		m.viewport.LineDown(1)
+	case "esc", "enter", "q":
+		m.screen = screenMain
+		m.cursor = 0
+		m.err = nil
+		m.message = ""
+		m.outputLines = nil
+	}
+	return m, nil
+}
+
+func (m model) handlePasswordScreen(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter":
+		if m.password == "" {
+			m.message = "Password cannot be empty"
+			return m, nil
+		}
+		m.message = ""
+		return m.startPlaybook()
+	case "backspace":
+		if len(m.password) > 0 {
+			m.password = m.password[:len(m.password)-1]
+		}
+	case "esc":
+		m.password = ""
+		m.screen = screenRoles
+		m.cursor = 0
+	default:
+		if len(key) == 1 {
+			m.password += key
+		}
+	}
+	return m, nil
+}
+
+func (m model) handleRunningScreen(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		m.autoScroll = false
+		m.viewport.LineUp(1)
+	case "down", "j":
+		m.autoScroll = false
+		m.viewport.LineDown(1)
+	case "G":
+		m.autoScroll = true
+		m.viewport.GotoBottom()
+	case "g":
+		m.autoScroll = false
+		m.viewport.GotoTop()
 	}
 	return m, nil
 }
@@ -483,17 +609,51 @@ func (m model) executePlaybook() (model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Clear previous output
+	m.outputLines = nil
+	m.autoScroll = true
+	m.message = ""
+
+	// If not root, prompt for sudo password first
+	if m.needsPass {
+		m.screen = screenPassword
+		m.password = ""
+		return m, nil
+	}
+
+	// Already root — go straight to running
+	return m.startPlaybook()
+}
+
+// startPlaybook kicks off ansible with streaming output into the viewport.
+func (m model) startPlaybook() (model, tea.Cmd) {
 	m.screen = screenRunning
 
+	// Collect parameters for the goroutine closure
+	var tags []string
+	for i, r := range m.roles {
+		if m.selected[i] {
+			tags = append(tags, r)
+		}
+	}
 	tagStr := strings.Join(tags, ",")
 	dryRun := m.dryRun
 	cfg := m.cfg
+	pass := m.password
 
-	// Build the ansible-playbook command to hand off terminal control.
-	// tea.ExecProcess releases the alt-screen so ansible can use stdin
-	// (required for --ask-become-pass) and stdout directly.
-	cmdFunc := func() tea.Msg {
-		if err := ansible.EnsureInstalled(); err != nil {
+	// Clear password from model immediately
+	m.password = ""
+
+	return m, func() tea.Msg {
+		if programRef == nil {
+			return playbookDoneMsg{err: fmt.Errorf("internal error: program reference not set")}
+		}
+
+		onOutput := func(line string) {
+			programRef.Send(playbookOutputMsg{line: line})
+		}
+
+		if err := ansible.EnsureInstalledStreaming(onOutput); err != nil {
 			return playbookDoneMsg{err: err}
 		}
 		ansibleDir, err := ansible.FindAnsibleDir()
@@ -501,12 +661,14 @@ func (m model) executePlaybook() (model, tea.Cmd) {
 			return playbookDoneMsg{err: err}
 		}
 		extraVars := cfg.ToExtraVars()
-		err = ansible.RunPlaybook(ansibleDir, extraVars, tagStr, dryRun)
+		err = ansible.RunPlaybookStreaming(ansibleDir, extraVars, tagStr, dryRun, pass, onOutput)
 		return playbookDoneMsg{err: err}
 	}
-
-	return m, cmdFunc
 }
+
+// programRef holds a reference to the running tea.Program so that background
+// goroutines can send messages (e.g. streaming output lines).
+var programRef *tea.Program
 
 // --- View ---
 
@@ -611,15 +773,29 @@ func (m model) View() string {
 			b.WriteString(helpStyle.Render("↑/↓ navigate • enter confirm field • esc cancel"))
 		}
 
+	case screenPassword:
+		b.WriteString(subtitleStyle.Render("Sudo password required") + "\n\n")
+		mask := strings.Repeat("•", len(m.password)) + "▏"
+		b.WriteString("  Password: " + selectedStyle.Render(mask) + "\n")
+		if m.message != "" {
+			b.WriteString("\n" + errorStyle.Render(m.message) + "\n")
+		}
+		b.WriteString(helpStyle.Render("enter submit • esc back"))
+
 	case screenRunning:
-		// The playbook runs with stdin/stdout attached, so show minimal TUI
 		mode := "Applying"
 		if m.dryRun {
 			mode = "Checking (dry run)"
 		}
 		spinner := lipgloss.NewStyle().Foreground(accentColor).Render("⟳")
-		b.WriteString(fmt.Sprintf("\n%s %s configuration...\n", spinner, mode))
-		b.WriteString(subtitleStyle.Render("Ansible output appears in terminal below"))
+		b.WriteString(fmt.Sprintf("%s %s configuration...\n", spinner, mode))
+		b.WriteString(m.viewport.View() + "\n")
+		scrollInfo := subtitleStyle.Render(fmt.Sprintf("lines: %d", len(m.outputLines)))
+		if !m.autoScroll {
+			scrollInfo += subtitleStyle.Render(" (scroll paused)")
+		}
+		b.WriteString(scrollInfo + "\n")
+		b.WriteString(helpStyle.Render("↑/↓ scroll • G bottom • g top • ctrl+c abort"))
 
 	case screenDone:
 		if m.err != nil {
@@ -627,7 +803,12 @@ func (m model) View() string {
 		} else {
 			b.WriteString("\n" + successStyle.Render("✓ "+m.message) + "\n")
 		}
-		b.WriteString(helpStyle.Render("press enter or esc to continue"))
+		if len(m.outputLines) > 0 {
+			b.WriteString(m.viewport.View() + "\n")
+			b.WriteString(helpStyle.Render("↑/↓ scroll • enter/esc continue"))
+		} else {
+			b.WriteString(helpStyle.Render("press enter or esc to continue"))
+		}
 	}
 
 	return b.String() + "\n"
@@ -645,6 +826,7 @@ func parseBool(s string) bool {
 // Run launches the interactive TUI.
 func Run() {
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	programRef = p
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

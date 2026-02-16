@@ -1,8 +1,10 @@
 package ansible
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,4 +139,141 @@ func RunPlaybook(ansibleDir string, extraVars map[string]interface{}, tags strin
 func isAnsibleDir(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, "playbook.yml"))
 	return err == nil && !info.IsDir()
+}
+
+// OutputFunc is called for each line of output from a streaming command.
+type OutputFunc func(line string)
+
+// EnsureInstalledStreaming is like EnsureInstalled but sends output through onOutput.
+func EnsureInstalledStreaming(onOutput OutputFunc) error {
+	if _, err := exec.LookPath("ansible-playbook"); err == nil {
+		onOutput("✓ ansible-playbook already installed")
+		return nil
+	}
+
+	onOutput("Installing Ansible...")
+
+	cmds := [][]string{
+		{"sudo", "apt-get", "update", "-qq"},
+		{"sudo", "apt-get", "install", "-y", "-qq", "software-properties-common"},
+		{"sudo", "apt-add-repository", "--yes", "--update", "ppa:ansible/ansible"},
+		{"sudo", "apt-get", "install", "-y", "-qq", "ansible"},
+	}
+
+	for _, args := range cmds {
+		onOutput(fmt.Sprintf("→ %s", strings.Join(args, " ")))
+		if err := runCmdStreaming(args, "", nil, onOutput); err != nil {
+			return fmt.Errorf("command %q failed: %w", strings.Join(args, " "), err)
+		}
+	}
+
+	return nil
+}
+
+// RunPlaybookStreaming executes ansible-playbook, sending output line-by-line
+// through onOutput. If becomePass is non-empty it is piped to ansible's stdin
+// in place of --ask-become-pass.
+func RunPlaybookStreaming(ansibleDir string, extraVars map[string]interface{}, tags string, dryRun bool, becomePass string, onOutput OutputFunc) error {
+	playbook := filepath.Join(ansibleDir, "playbook.yml")
+	inventory := filepath.Join(ansibleDir, "inventory.ini")
+
+	if _, err := os.Stat(playbook); err != nil {
+		return fmt.Errorf("playbook not found: %s", playbook)
+	}
+
+	args := []string{
+		playbook,
+		"-i", inventory,
+		"--connection=local",
+	}
+
+	if len(extraVars) > 0 {
+		varsJSON, err := json.Marshal(extraVars)
+		if err != nil {
+			return fmt.Errorf("failed to marshal extra vars: %w", err)
+		}
+		args = append(args, "--extra-vars", string(varsJSON))
+	}
+
+	if tags != "" {
+		args = append(args, "--tags", tags)
+	}
+
+	if dryRun {
+		args = append(args, "--check", "--diff")
+	}
+
+	// If we have a password, feed it via stdin instead of --ask-become-pass
+	var stdinData []byte
+	if os.Getuid() != 0 {
+		if becomePass != "" {
+			args = append(args, "--become-password-file", "/dev/stdin")
+			stdinData = []byte(becomePass)
+		} else {
+			args = append(args, "--ask-become-pass")
+		}
+	}
+
+	mode := "APPLY"
+	if dryRun {
+		mode = "DRY RUN (check mode)"
+	}
+	onOutput(fmt.Sprintf("[%s] ansible-playbook %s", mode, strings.Join(args, " ")))
+	onOutput("")
+
+	return runCmdStreaming([]string{"ansible-playbook"}, ansibleDir, stdinData, onOutput, args[0:]...)
+}
+
+// runCmdStreaming runs a command, piping merged stdout+stderr line-by-line to onOutput.
+// cmdAndArgs is the set of arguments; if extraArgs is provided they are used as the
+// full arg list instead of cmdAndArgs[1:].
+func runCmdStreaming(cmdAndArgs []string, dir string, stdinData []byte, onOutput OutputFunc, extraArgs ...string) error {
+	name := cmdAndArgs[0]
+	var args []string
+	if len(extraArgs) > 0 {
+		args = extraArgs
+	} else {
+		args = cmdAndArgs[1:]
+	}
+
+	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8", "LANG=C.UTF-8", "ANSIBLE_FORCE_COLOR=0", "ANSIBLE_NOCOLOR=1")
+
+	// Feed password via stdin if provided
+	if len(stdinData) > 0 {
+		cmd.Stdin = strings.NewReader(string(stdinData))
+	}
+
+	// Merge stdout and stderr into a single pipe
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		pr.Close()
+		return err
+	}
+
+	// Read lines in a goroutine so we don't block
+	done := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(pr)
+		// Increase buffer for long ansible lines
+		scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
+		for scanner.Scan() {
+			onOutput(scanner.Text())
+		}
+		done <- scanner.Err()
+	}()
+
+	err := cmd.Wait()
+	pw.Close()
+	<-done // wait for reader goroutine to finish
+	pr.Close()
+
+	return err
 }
