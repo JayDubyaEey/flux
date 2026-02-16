@@ -42,6 +42,7 @@ WSL bootstrap & configuration
 ▸ Run Setup     Apply configuration to this machine
   Dry Run       Preview changes without applying (--check)
   Configure     View or edit your settings
+  Update        Pull latest changes and rebuild flux
   Quit          Exit flux
 ```
 
@@ -77,9 +78,11 @@ flux/
 │   │   └── config.go                # Config loading, saving, prompting
 │   ├── ansible/
 │   │   └── runner.go                # Ansible install check & playbook runner
-│   └── tui/
-│       ├── tui.go                   # Bubbletea TUI (menus, role select, config edit)
-│       └── styles.go                # Lipgloss styles & colours
+│   ├── tui/
+│   │   ├── tui.go                   # Bubbletea TUI (menus, role select, config edit)
+│   │   └── styles.go                # Lipgloss styles & colours
+│   └── updater/
+│       └── updater.go               # Self-update (git pull + rebuild)
 ├── ansible/
 │   ├── playbook.yml                 # Main playbook
 │   ├── inventory.ini                # Local inventory (localhost)
@@ -90,7 +93,7 @@ flux/
 │       │   ├── tasks/main.yml       # Zsh, oh-my-zsh, starship, dotfiles
 │       │   └── templates/.zshrc.j2
 │       ├── dev-tools/
-│       │   └── tasks/main.yml       # Docker, Go, Node (fnm), Rust
+│       │   └── tasks/main.yml       # Podman, Go, Bun, .NET, Python, k9s
 │       └── git-config/
 │           ├── tasks/main.yml
 │           └── templates/.gitconfig.j2
@@ -112,17 +115,17 @@ username: johndoe
 email: john@example.com
 git_name: John Doe
 git_email: john@example.com
+git_https: true
 default_shell: zsh
 install_podman: true
 podman_wsl_distro: podman-machine
 podman_wsl_host: localhost
 podman_wsl_port: "22"
-install_node: true
-node_version: "22"
+install_bun: true
 install_go: true
-go_version: "1.23"
+go_version: "1.26"
 install_dotnet: true
-dotnet_version: "8.0"
+dotnet_version: "10.0"
 install_python: true
 python_version: "3.13"
 extra_packages:
@@ -154,9 +157,9 @@ flux run --dry-run
 | Role | Tag | What it does |
 |------|-----|-------------|
 | **base** | `base` | Updates apt, installs essential packages (build-essential, curl, git, etc.) |
-| **git-config** | `git-config` | Deploys ~/.gitconfig from template with your name/email |
+| **git-config** | `git-config` | Deploys ~/.gitconfig from template with your name/email, optional HTTPS-for-GitHub rewrite |
 | **shell** | `shell` | Installs zsh, oh-my-zsh, plugins, starship prompt, deploys .zshrc |
-| **dev-tools** | `dev-tools` | Installs Podman (remote client), Go, Node.js (via NodeSource), .NET SDK, Python — each gated by config flags |
+| **dev-tools** | `dev-tools` | Installs Podman (remote client + compose), Go, Bun, .NET SDK, Python, k9s — each gated by config flags |
 
 ## Customising
 
@@ -176,3 +179,13 @@ Edit `internal/config/config.go` — add the field to the `Config` struct, updat
 - WSL2 (Ubuntu recommended)
 - Go 1.23+ (the install script handles this)
 - Internet connection (first run)
+
+## Self-Update
+
+Flux can update itself by pulling the latest source and rebuilding:
+
+```bash
+flux update
+```
+
+Or select **Update** from the TUI main menu.
