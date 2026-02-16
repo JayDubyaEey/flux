@@ -37,11 +37,17 @@ func EnsureInstalled() error {
 }
 
 // FindAnsibleDir locates the ansible/ directory by checking:
-// 1. Next to the running binary
-// 2. Current working directory
-// 3. Walking up parent directories
+// 1. Standard installation directory
+// 2. Next to the running binary
+// 3. Current working directory
+// 4. Walking up parent directories
 func FindAnsibleDir() (string, error) {
 	candidates := []string{}
+
+	// Standard installation directory
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".local", "share", "flux", "ansible"))
+	}
 
 	// Relative to executable
 	if exe, err := os.Executable(); err == nil {
