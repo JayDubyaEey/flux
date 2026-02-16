@@ -59,6 +59,7 @@ Navigate with arrow keys, select roles to run, toggle dry-run mode — all witho
 | `flux config show` | Print current config |
 | `flux config edit` | Re-run the interactive config prompts |
 | `flux config path` | Print the config file path |
+| `flux update` | Pull latest changes and rebuild flux |
 | `flux version` | Print version |
 
 ## Project Structure

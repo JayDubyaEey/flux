@@ -10,6 +10,7 @@ import (
 
 	"github.com/jaydubyaeey/flux/internal/ansible"
 	"github.com/jaydubyaeey/flux/internal/config"
+	"github.com/jaydubyaeey/flux/internal/updater"
 )
 
 // --- screens ---
@@ -37,6 +38,7 @@ var mainMenu = []menuItem{
 	{"Run Setup", "Apply configuration to this machine"},
 	{"Dry Run", "Preview changes without applying (--check)"},
 	{"Configure", "View or edit your settings"},
+	{"Update", "Pull latest changes and rebuild flux"},
 	{"Quit", "Exit flux"},
 }
 
@@ -98,6 +100,7 @@ func initialModel() model {
 // --- messages ---
 
 type playbookDoneMsg struct{ err error }
+type updateDoneMsg struct{ err error }
 
 // --- bubbletea interface ---
 
@@ -120,6 +123,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				mode = "checked (dry run)"
 			}
 			m.message = fmt.Sprintf("Setup %s successfully!", mode)
+		}
+		return m, nil
+	case updateDoneMsg:
+		m.screen = screenDone
+		m.err = msg.err
+		if msg.err != nil {
+			m.message = fmt.Sprintf("Update failed: %v", msg.err)
+		} else {
+			m.message = "flux updated successfully!"
 		}
 		return m, nil
 	}
@@ -175,7 +187,14 @@ func (m model) handleMainMenu(key string) (tea.Model, tea.Cmd) {
 		case 2: // Configure
 			m.screen = screenConfigMenu
 			m.cursor = 0
-		case 3: // Quit
+		case 3: // Update
+			m.screen = screenRunning
+			m.message = "Updating flux..."
+			return m, func() tea.Msg {
+				err := updater.Update()
+				return updateDoneMsg{err: err}
+			}
+		case 4: // Quit
 			m.quitting = true
 			return m, tea.Quit
 		}
