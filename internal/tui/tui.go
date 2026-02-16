@@ -355,8 +355,7 @@ func (m *model) initEditFields() {
 		{"podman_wsl_distro", "Podman WSL Distro", cfg.PodmanWSLDistro},
 		{"podman_wsl_host", "Podman WSL Host", cfg.PodmanWSLHost},
 		{"podman_wsl_port", "Podman WSL Port", cfg.PodmanWSLPort},
-		{"install_node", "Install Node (true/false)", boolStr(cfg.InstallNode)},
-		{"node_version", "Node Version", cfg.NodeVersion},
+		{"install_bun", "Install Bun (true/false)", boolStr(cfg.InstallBun)},
 		{"install_go", "Install Go (true/false)", boolStr(cfg.InstallGo)},
 		{"go_version", "Go Version", cfg.GoVersion},
 		{"install_dotnet", "Install .NET (true/false)", boolStr(cfg.InstallDotnet)},
@@ -394,10 +393,8 @@ func (m *model) applyEditFields() {
 			m.cfg.PodmanWSLHost = f.value
 		case "podman_wsl_port":
 			m.cfg.PodmanWSLPort = f.value
-		case "install_node":
-			m.cfg.InstallNode = parseBool(f.value)
-		case "node_version":
-			m.cfg.NodeVersion = f.value
+		case "install_bun":
+			m.cfg.InstallBun = parseBool(f.value)
 		case "install_go":
 			m.cfg.InstallGo = parseBool(f.value)
 		case "go_version":
