@@ -1,0 +1,69 @@
+---
+# --- Python via deadsnakes PPA ---
+
+- name: Add deadsnakes PPA for latest Python
+  apt_repository:
+    repo: ppa:deadsnakes/ppa
+    state: present
+    update_cache: yes
+
+# Resolve "latest" by querying the endoflife.date API for the latest stable Python.
+- name: Resolve latest Python version
+  when: python_version == "latest"
+  block:
+    - name: Fetch Python release data from endoflife.date
+      uri:
+        url: https://endoflife.date/api/python.json
+        return_content: yes
+      register: python_releases_raw
+      failed_when: false
+
+    - name: Set resolved Python version (major.minor)
+      set_fact:
+        python_version: >-
+          {{ python_releases_raw.json
+              | selectattr('eol', 'equalto', false)
+              | map(attribute='cycle')
+              | first }}
+      when: python_releases_raw is succeeded and python_releases_raw.json is defined
+
+    - name: Fallback Python version if API unreachable
+      set_fact:
+        python_version: "3.13"
+      when: python_releases_raw is failed or python_releases_raw.json is not defined
+
+    # Verify the resolved version is actually available in deadsnakes
+    - name: Check if resolved Python version is available in apt
+      shell: "apt-cache show python{{ python_version }} 2>/dev/null"
+      register: python_apt_check
+      failed_when: false
+      changed_when: false
+
+    - name: Fall back to 3.13 if resolved version not in deadsnakes
+      set_fact:
+        python_version: "3.13"
+      when: python_apt_check.rc != 0
+
+- name: Display target Python version
+  debug:
+    msg: "Target Python version: {{ python_version }}"
+
+- name: Install Python {{ python_version }} and essentials
+  apt:
+    name:
+      - "python{{ python_version }}"
+      - "python{{ python_version }}-venv"
+      - "python{{ python_version }}-dev"
+    state: present
+
+- name: Set python{{ python_version }} as 'python' via update-alternatives
+  community.general.alternatives:
+    name: python
+    link: /usr/bin/python
+    path: "/usr/bin/python{{ python_version }}"
+    priority: 100
+
+- name: Install pip for Python {{ python_version }}
+  shell: "python{{ python_version }} -m ensurepip --upgrade || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python{{ python_version }}"
+  args:
+    creates: "/usr/bin/pip{{ python_version }}"

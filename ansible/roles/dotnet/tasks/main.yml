@@ -1,0 +1,70 @@
+---
+# --- .NET SDK ---
+
+# Resolve "latest" to the newest supported .NET LTS/STS release.
+- name: Resolve latest .NET version
+  when: dotnet_version == "latest"
+  block:
+    - name: Fetch .NET release index from Microsoft
+      uri:
+        url: https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json
+        return_content: yes
+      register: dotnet_releases_raw
+      failed_when: false
+
+    - name: Set resolved .NET version from latest supported release
+      set_fact:
+        dotnet_version: >-
+          {{ (dotnet_releases_raw.json['releases-index']
+              | selectattr('support-phase', 'in', ['active', 'lts', 'sts'])
+              | sort(attribute='channel-version', reverse=true)
+              | first)['channel-version'] }}
+      when: dotnet_releases_raw is succeeded and dotnet_releases_raw.json is defined
+
+    - name: Fallback .NET version if API unreachable
+      set_fact:
+        dotnet_version: "8.0"
+      when: dotnet_releases_raw is failed or dotnet_releases_raw.json is not defined
+
+- name: Display target .NET version
+  debug:
+    msg: "Target .NET SDK version: {{ dotnet_version }}"
+
+- name: Check if dotnet is installed
+  command: dotnet --version
+  register: dotnet_check
+  failed_when: false
+  changed_when: false
+
+- name: Install .NET SDK {{ dotnet_version }}
+  when: dotnet_check.rc != 0 or dotnet_version not in dotnet_check.stdout | default('')
+  block:
+    - name: Check if Microsoft repo is configured
+      stat:
+        path: /etc/apt/sources.list.d/microsoft-prod.list
+      register: ms_repo
+
+    - name: Download Microsoft packages signing key
+      get_url:
+        url: "https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb"
+        dest: /tmp/packages-microsoft-prod.deb
+        mode: "0644"
+      when: not ms_repo.stat.exists
+
+    - name: Install Microsoft package signing key and repo
+      apt:
+        deb: /tmp/packages-microsoft-prod.deb
+        state: present
+      when: not ms_repo.stat.exists
+
+    - name: Clean up signing key deb
+      file:
+        path: /tmp/packages-microsoft-prod.deb
+        state: absent
+      when: not ms_repo.stat.exists
+
+    - name: Install .NET SDK
+      apt:
+        update_cache: yes
+        name: "dotnet-sdk-{{ dotnet_version }}"
+        state: present

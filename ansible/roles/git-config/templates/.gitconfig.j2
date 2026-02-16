@@ -15,7 +15,7 @@
 [push]
     autoSetupRemote = true
 
-{% if git_https | default('true') | lower == 'true' %}
+{% if git_https | default(true) | bool %}
 [url "https://github.com/"]
     insteadOf = git@github.com:
 {% endif %}

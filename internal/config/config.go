@@ -34,8 +34,12 @@ type Config struct {
 	DotnetVersion   string   `yaml:"dotnet_version,omitempty"`
 	InstallPython   bool     `yaml:"install_python"`
 	PythonVersion   string   `yaml:"python_version,omitempty"`
+	InstallK9s      bool     `yaml:"install_k9s"`
 	ExtraPackages   []string `yaml:"extra_packages,omitempty"`
 }
+
+// validShells is the set of supported shell values.
+var validShells = map[string]bool{"bash": true, "zsh": true}
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() *Config {
@@ -49,11 +53,12 @@ func DefaultConfig() *Config {
 		PodmanWSLPort:   "22",
 		InstallBun:      true,
 		InstallGo:       true,
-		GoVersion:       "1.23.4",
+		GoVersion:       "latest",
 		InstallDotnet:   true,
-		DotnetVersion:   "8.0",
+		DotnetVersion:   "latest",
 		InstallPython:   true,
-		PythonVersion:   "3.13",
+		PythonVersion:   "latest",
+		InstallK9s:      true,
 		ExtraPackages:   []string{"ripgrep", "fd-find", "jq", "htop"},
 	}
 }
@@ -151,9 +156,15 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		return nil, err
 	}
 
-	cfg.DefaultShell, err = prompt(reader, "Default shell (bash/zsh)", cfg.DefaultShell, "zsh")
-	if err != nil {
-		return nil, err
+	for {
+		cfg.DefaultShell, err = prompt(reader, "Default shell (bash/zsh)", cfg.DefaultShell, "zsh")
+		if err != nil {
+			return nil, err
+		}
+		if validShells[cfg.DefaultShell] {
+			break
+		}
+		fmt.Println("    Invalid shell. Please enter 'bash' or 'zsh'.")
 	}
 
 	cfg.InstallPodman, err = promptBool(reader, "Install Podman (remote client)?", cfg.InstallPodman)
@@ -185,7 +196,7 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		return nil, err
 	}
 	if cfg.InstallGo {
-		cfg.GoVersion, err = prompt(reader, "Go version", cfg.GoVersion, "1.23")
+		cfg.GoVersion, err = prompt(reader, "Go version (or 'latest')", cfg.GoVersion, "latest")
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +207,7 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		return nil, err
 	}
 	if cfg.InstallDotnet {
-		cfg.DotnetVersion, err = prompt(reader, ".NET SDK version", cfg.DotnetVersion, "8.0")
+		cfg.DotnetVersion, err = prompt(reader, ".NET SDK version (or 'latest')", cfg.DotnetVersion, "latest")
 		if err != nil {
 			return nil, err
 		}
@@ -207,10 +218,15 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		return nil, err
 	}
 	if cfg.InstallPython {
-		cfg.PythonVersion, err = prompt(reader, "Python version", cfg.PythonVersion, "3.13")
+		cfg.PythonVersion, err = prompt(reader, "Python version (or 'latest')", cfg.PythonVersion, "latest")
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	cfg.InstallK9s, err = promptBool(reader, "Install k9s (Kubernetes TUI)?", cfg.InstallK9s)
+	if err != nil {
+		return nil, err
 	}
 
 	pkgs, err := prompt(reader, "Extra apt packages (comma-separated)", strings.Join(cfg.ExtraPackages, ", "), "ripgrep, fd-find, jq, htop")
@@ -233,36 +249,64 @@ func (c *Config) Marshal() ([]byte, error) {
 	return yaml.Marshal(c)
 }
 
-// ToExtraVars converts the config to a flat map for Ansible --extra-vars.
-func (c *Config) ToExtraVars() map[string]string {
-	vars := map[string]string{
+// ToExtraVars converts the config to a typed map for Ansible --extra-vars.
+// Booleans are passed as real booleans and lists as real lists in the JSON.
+func (c *Config) ToExtraVars() map[string]interface{} {
+	vars := map[string]interface{}{
 		"username":          c.Username,
 		"email":             c.Email,
 		"git_name":          c.GitName,
 		"git_email":         c.GitEmail,
-		"git_https":         boolStr(c.GitHTTPS),
+		"git_https":         c.GitHTTPS,
 		"default_shell":     c.DefaultShell,
-		"install_podman":    boolStr(c.InstallPodman),
+		"install_podman":    c.InstallPodman,
 		"podman_wsl_distro": c.PodmanWSLDistro,
 		"podman_wsl_host":   c.PodmanWSLHost,
 		"podman_wsl_port":   c.PodmanWSLPort,
-		"install_bun":       boolStr(c.InstallBun),
-		"install_go":        boolStr(c.InstallGo),
+		"install_bun":       c.InstallBun,
+		"install_go":        c.InstallGo,
 		"go_version":        c.GoVersion,
-		"install_dotnet":    boolStr(c.InstallDotnet),
+		"install_dotnet":    c.InstallDotnet,
 		"dotnet_version":    c.DotnetVersion,
-		"install_python":    boolStr(c.InstallPython),
+		"install_python":    c.InstallPython,
 		"python_version":    c.PythonVersion,
+		"install_k9s":       c.InstallK9s,
+		"extra_packages":    c.ExtraPackages,
 	}
-	if len(c.ExtraPackages) > 0 {
-		vars["extra_packages"] = strings.Join(c.ExtraPackages, ",")
+	if c.ExtraPackages == nil {
+		vars["extra_packages"] = []string{}
 	}
 	return vars
 }
 
-// AvailableRoles returns all role tag names the user can select.
+// AvailableRoles returns the default role tag names the user can select.
+// If an ansible directory is provided, roles are discovered dynamically.
 func AvailableRoles() []string {
-	return []string{"base", "git-config", "shell", "dev-tools"}
+	return []string{"base", "git-config", "shell", "podman", "golang", "bun", "dotnet", "python", "k9s"}
+}
+
+// DiscoverRoles scans the ansible/roles/ directory and returns role names.
+// Falls back to the hardcoded list if the directory cannot be read.
+func DiscoverRoles(ansibleDir string) []string {
+	rolesDir := filepath.Join(ansibleDir, "roles")
+	entries, err := os.ReadDir(rolesDir)
+	if err != nil {
+		return AvailableRoles()
+	}
+	var roles []string
+	for _, e := range entries {
+		if e.IsDir() {
+			// Verify it has a tasks/main.yml
+			tasksFile := filepath.Join(rolesDir, e.Name(), "tasks", "main.yml")
+			if _, err := os.Stat(tasksFile); err == nil {
+				roles = append(roles, e.Name())
+			}
+		}
+	}
+	if len(roles) == 0 {
+		return AvailableRoles()
+	}
+	return roles
 }
 
 // --- helpers ---
@@ -312,7 +356,8 @@ func whoami() string {
 	return ""
 }
 
-func boolStr(b bool) string {
+// BoolStr converts a bool to "true" or "false".
+func BoolStr(b bool) string {
 	if b {
 		return "true"
 	}

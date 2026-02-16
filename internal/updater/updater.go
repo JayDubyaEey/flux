@@ -70,7 +70,17 @@ func Update() error {
 	// Rebuild
 	fmt.Println("→ Rebuilding...")
 	binPath := BinPath()
-	build := exec.Command("go", "build", "-o", binPath, "./cmd/flux")
+
+	// Ensure Go is on PATH (may have been installed to /usr/local/go/bin)
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		goPath = "/usr/local/go/bin/go"
+		if _, statErr := os.Stat(goPath); statErr != nil {
+			return fmt.Errorf("go not found on PATH or in /usr/local/go/bin — is Go installed?")
+		}
+	}
+
+	build := exec.Command(goPath, "build", "-o", binPath, "./cmd/flux")
 	build.Dir = dir
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr

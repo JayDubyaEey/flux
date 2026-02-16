@@ -93,7 +93,13 @@ func cmdConfig(sub string) {
 		fmt.Println(string(out))
 
 	case "edit":
-		cfg, _ := config.Load()
+		cfg, loadErr := config.Load()
+		if loadErr != nil && config.Exists() {
+			// Config file exists but is corrupt
+			fmt.Fprintf(os.Stderr, "Warning: config file is corrupt: %v\n", loadErr)
+			fmt.Fprintf(os.Stderr, "Starting with defaults. Your old config will be overwritten on save.\n\n")
+			cfg = nil
+		}
 		cfg, err := config.PromptForConfig(cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
