@@ -97,42 +97,6 @@
         path: /tmp/go.tar.gz
         state: absent
 
-# --- Node.js (via NodeSource) ---
-- name: Check if Node.js is installed
-  command: node --version
-  register: node_check
-  failed_when: false
-  changed_when: false
-  when: install_node == "true"
-
-- name: Install Node.js {{ node_version }}
-  when: install_node == "true" and (node_check.rc != 0 or ('v' + node_version) not in node_check.stdout | default(''))
-  block:
-    - name: Download NodeSource setup script
-      get_url:
-        url: "https://deb.nodesource.com/setup_{{ node_version }}.x"
-        dest: /tmp/nodesource_setup.sh
-        mode: "0755"
-
-    - name: Run NodeSource setup script
-      command: bash /tmp/nodesource_setup.sh
-
-    - name: Install Node.js and npm
-      apt:
-        update_cache: yes
-        name:
-          - nodejs
-        state: present
-
-    - name: Verify npm is installed
-      command: npm --version
-      changed_when: false
-
-    - name: Clean up NodeSource setup script
-      file:
-        path: /tmp/nodesource_setup.sh
-        state: absent
-
 # --- Bun ---
 - name: Check if Bun is installed
   become: true
@@ -141,13 +105,13 @@
   register: bun_check
   failed_when: false
   changed_when: false
-  when: install_node == "true"
+  when: install_bun == "true"
 
 - name: Install Bun
   become: true
   become_user: "{{ username }}"
   shell: curl -fsSL https://bun.sh/install | bash
-  when: install_node == "true" and bun_check.rc != 0
+  when: install_bun == "true" and bun_check.rc != 0
 
 # --- .NET SDK ---
 - name: Check if dotnet is installed

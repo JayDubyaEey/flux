@@ -27,8 +27,7 @@ type Config struct {
 	PodmanWSLDistro string   `yaml:"podman_wsl_distro,omitempty"`
 	PodmanWSLHost   string   `yaml:"podman_wsl_host,omitempty"`
 	PodmanWSLPort   string   `yaml:"podman_wsl_port,omitempty"`
-	InstallNode     bool     `yaml:"install_node"`
-	NodeVersion     string   `yaml:"node_version,omitempty"`
+	InstallBun      bool     `yaml:"install_bun"`
 	InstallGo       bool     `yaml:"install_go"`
 	GoVersion       string   `yaml:"go_version,omitempty"`
 	InstallDotnet   bool     `yaml:"install_dotnet"`
@@ -48,8 +47,7 @@ func DefaultConfig() *Config {
 		PodmanWSLDistro: "podman-machine",
 		PodmanWSLHost:   "localhost",
 		PodmanWSLPort:   "22",
-		InstallNode:     true,
-		NodeVersion:     "22",
+		InstallBun:      true,
 		InstallGo:       true,
 		GoVersion:       "1.26",
 		InstallDotnet:   true,
@@ -177,15 +175,9 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		}
 	}
 
-	cfg.InstallNode, err = promptBool(reader, "Install Node.js?", cfg.InstallNode)
+	cfg.InstallBun, err = promptBool(reader, "Install Bun?", cfg.InstallBun)
 	if err != nil {
 		return nil, err
-	}
-	if cfg.InstallNode {
-		cfg.NodeVersion, err = prompt(reader, "Node.js version", cfg.NodeVersion, "22")
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	cfg.InstallGo, err = promptBool(reader, "Install Go?", cfg.InstallGo)
@@ -254,8 +246,7 @@ func (c *Config) ToExtraVars() map[string]string {
 		"podman_wsl_distro": c.PodmanWSLDistro,
 		"podman_wsl_host":   c.PodmanWSLHost,
 		"podman_wsl_port":   c.PodmanWSLPort,
-		"install_node":      boolStr(c.InstallNode),
-		"node_version":      c.NodeVersion,
+		"install_bun":       boolStr(c.InstallBun),
 		"install_go":        boolStr(c.InstallGo),
 		"go_version":        c.GoVersion,
 		"install_dotnet":    boolStr(c.InstallDotnet),
