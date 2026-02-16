@@ -72,6 +72,9 @@ type model struct {
 	editCursor int
 	editInput  string
 	editDone   bool
+
+	// First-run: config edit was triggered because no config file existed
+	firstRun bool
 }
 
 type editField struct {
@@ -87,14 +90,25 @@ func initialModel() model {
 		sel[i] = true // all selected by default
 	}
 
-	cfg, _ := config.Load()
+	cfg, err := config.Load()
 
-	return model{
+	m := model{
 		screen:   screenMain,
 		roles:    roles,
 		selected: sel,
 		cfg:      cfg,
 	}
+
+	// No config file on disk → start on the TUI config-edit screen
+	// so the user can fill in their preferences without blocking stdin.
+	if err != nil || cfg == nil {
+		m.firstRun = true
+		m.cfg = config.DefaultConfig()
+		m.screen = screenConfigEdit
+		m.initEditFields()
+	}
+
+	return m
 }
 
 // --- messages ---
@@ -298,9 +312,21 @@ func (m model) handleConfigEdit(key string) (tea.Model, tea.Cmd) {
 			if err := config.Save(m.cfg); err != nil {
 				m.message = fmt.Sprintf("Error saving: %v", err)
 			}
-			m.screen = screenConfigMenu
-			m.cursor = 0
+			if m.firstRun {
+				// First-run save complete — go to main menu
+				m.firstRun = false
+				m.screen = screenMain
+				m.cursor = 0
+				m.message = "Config saved — you're all set!"
+			} else {
+				m.screen = screenConfigMenu
+				m.cursor = 0
+			}
 		case "esc":
+			if m.firstRun {
+				// Can't skip config on first run — stay on edit screen
+				return m, nil
+			}
 			// Cancel on esc — discard changes
 			m.screen = screenConfigMenu
 			m.cursor = 0
@@ -333,6 +359,10 @@ func (m model) handleConfigEdit(key string) (tea.Model, tea.Cmd) {
 			m.editInput = m.editInput[:len(m.editInput)-1]
 		}
 	case "esc":
+		if m.firstRun {
+			// Can't skip config on first run
+			return m, nil
+		}
 		m.screen = screenConfigMenu
 		m.cursor = 0
 	default:
@@ -428,16 +458,17 @@ func (m *model) applyEditFields() {
 }
 
 func (m model) executePlaybook() (model, tea.Cmd) {
-	// Ensure config exists
+	// Ensure config exists — redirect to TUI edit screen instead of
+	// calling the stdin-based LoadOrCreate which conflicts with Bubbletea.
 	if m.cfg == nil {
-		cfg, err := config.LoadOrCreate()
-		if err != nil {
-			m.screen = screenDone
-			m.message = fmt.Sprintf("Config error: %v", err)
-			m.err = err
-			return m, nil
-		}
-		m.cfg = cfg
+		m.firstRun = true
+		m.cfg = config.DefaultConfig()
+		m.screen = screenConfigEdit
+		m.editCursor = 0
+		m.editDone = false
+		m.initEditFields()
+		m.message = "Please configure flux before running."
+		return m, nil
 	}
 
 	// Build tags from selection
@@ -551,7 +582,11 @@ func (m model) View() string {
 		b.WriteString(helpStyle.Render("press enter or esc to go back"))
 
 	case screenConfigEdit:
-		b.WriteString(subtitleStyle.Render("Edit Configuration") + "\n\n")
+		if m.firstRun {
+			b.WriteString(subtitleStyle.Render("Welcome! Let's configure flux.") + "\n\n")
+		} else {
+			b.WriteString(subtitleStyle.Render("Edit Configuration") + "\n\n")
+		}
 		for i, f := range m.editFields {
 			cursor := "  "
 			if i == m.editCursor && !m.editDone {
@@ -570,7 +605,11 @@ func (m model) View() string {
 		if m.editDone {
 			b.WriteString("\n" + successStyle.Render("✓ Press enter to save"))
 		}
-		b.WriteString(helpStyle.Render("↑/↓ navigate • enter confirm field • esc cancel"))
+		if m.firstRun {
+			b.WriteString(helpStyle.Render("↑/↓ navigate • enter confirm field • ctrl+c quit"))
+		} else {
+			b.WriteString(helpStyle.Render("↑/↓ navigate • enter confirm field • esc cancel"))
+		}
 
 	case screenRunning:
 		// The playbook runs with stdin/stdout attached, so show minimal TUI
