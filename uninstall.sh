@@ -9,14 +9,6 @@ echo ""
 echo "  ⚡ flux — uninstall"
 echo ""
 
-# --- Confirm ---
-# Read from /dev/tty so prompts work when piped (curl ... | bash)
-read -rp "This will remove flux from your system. Continue? [y/N] " confirm < /dev/tty
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    echo "Aborted."
-    exit 0
-fi
-
 # --- Remove binary ---
 if [ -f "$BIN" ]; then
     echo "→ Removing binary ($BIN)..."
@@ -35,13 +27,8 @@ fi
 
 # --- Remove config ---
 if [ -d "$CONFIG_DIR" ]; then
-    read -rp "Remove configuration ($CONFIG_DIR)? [y/N] " remove_config < /dev/tty
-    if [[ "$remove_config" =~ ^[Yy]$ ]]; then
-        echo "→ Removing config..."
-        rm -rf "$CONFIG_DIR"
-    else
-        echo "  Keeping config."
-    fi
+    echo "→ Removing config ($CONFIG_DIR)..."
+    rm -rf "$CONFIG_DIR"
 fi
 
 # --- Clean PATH entries from shell rc files ---
