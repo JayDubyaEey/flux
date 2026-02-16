@@ -9,12 +9,13 @@
       uri:
         url: https://go.dev/VERSION?m=text
         return_content: yes
+        follow_redirects: all
       register: go_latest_raw
       failed_when: false
 
     - name: Set resolved Go version
       set_fact:
-        go_version: "{{ go_latest_raw.content | regex_search('go([0-9.]+)', '\\1') | first }}"
+        go_version: "{{ go_latest_raw.content.split('\n') | first | regex_replace('^go', '') }}"
       when: go_latest_raw is succeeded and go_latest_raw.content is defined
 
     - name: Fallback Go version if API unreachable
@@ -22,9 +23,13 @@
         go_version: "1.23.4"
       when: go_latest_raw is failed or go_latest_raw.content is not defined
 
+- name: Detect system architecture
+  set_fact:
+    go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
 - name: Display target Go version
   debug:
-    msg: "Target Go version: {{ go_version }}"
+    msg: "Target Go version: {{ go_version }} ({{ go_arch }})"
 
 - name: Check if Go is installed
   command: /usr/local/go/bin/go version
@@ -37,9 +42,10 @@
   block:
     - name: Download Go
       get_url:
-        url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
+        url: "https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
         dest: /tmp/go.tar.gz
         mode: "0644"
+        follow_redirects: all
 
     - name: Remove old Go installation
       file:
