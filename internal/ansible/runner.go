@@ -130,6 +130,7 @@ func RunPlaybook(ansibleDir string, extraVars map[string]string, tags string, dr
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Dir = ansibleDir
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8", "LANG=C.UTF-8")
 
 	return cmd.Run()
 }
