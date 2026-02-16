@@ -349,6 +349,7 @@ func (m *model) initEditFields() {
 		{"email", "Email", cfg.Email},
 		{"git_name", "Git Name", cfg.GitName},
 		{"git_email", "Git Email", cfg.GitEmail},
+		{"git_https", "GitHub HTTPS (true/false)", boolStr(cfg.GitHTTPS)},
 		{"default_shell", "Shell (bash/zsh)", cfg.DefaultShell},
 		{"install_podman", "Install Podman (true/false)", boolStr(cfg.InstallPodman)},
 		{"podman_wsl_distro", "Podman WSL Distro", cfg.PodmanWSLDistro},
@@ -381,6 +382,8 @@ func (m *model) applyEditFields() {
 			m.cfg.GitName = f.value
 		case "git_email":
 			m.cfg.GitEmail = f.value
+		case "git_https":
+			m.cfg.GitHTTPS = parseBool(f.value)
 		case "default_shell":
 			m.cfg.DefaultShell = f.value
 		case "install_podman":

@@ -10,6 +10,7 @@
     email: ""
     git_name: "{{ username }}"
     git_email: "{{ email }}"
+    git_https: "true"
     default_shell: zsh
     install_podman: "true"
     podman_wsl_distro: "podman-machine"

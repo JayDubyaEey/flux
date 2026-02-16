@@ -21,6 +21,7 @@ type Config struct {
 	Email           string   `yaml:"email"`
 	GitName         string   `yaml:"git_name"`
 	GitEmail        string   `yaml:"git_email"`
+	GitHTTPS        bool     `yaml:"git_https"`
 	DefaultShell    string   `yaml:"default_shell"`
 	InstallPodman   bool     `yaml:"install_podman"`
 	PodmanWSLDistro string   `yaml:"podman_wsl_distro,omitempty"`
@@ -41,6 +42,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Username:        whoami(),
+		GitHTTPS:        true,
 		DefaultShell:    "zsh",
 		InstallPodman:   true,
 		PodmanWSLDistro: "podman-machine",
@@ -146,6 +148,11 @@ func PromptForConfig(existing *Config) (*Config, error) {
 		return nil, err
 	}
 
+	cfg.GitHTTPS, err = promptBool(reader, "Use HTTPS for GitHub (instead of SSH)?", cfg.GitHTTPS)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg.DefaultShell, err = prompt(reader, "Default shell (bash/zsh)", cfg.DefaultShell, "zsh")
 	if err != nil {
 		return nil, err
@@ -241,6 +248,7 @@ func (c *Config) ToExtraVars() map[string]string {
 		"email":             c.Email,
 		"git_name":          c.GitName,
 		"git_email":         c.GitEmail,
+		"git_https":         boolStr(c.GitHTTPS),
 		"default_shell":     c.DefaultShell,
 		"install_podman":    boolStr(c.InstallPodman),
 		"podman_wsl_distro": c.PodmanWSLDistro,
