@@ -5,23 +5,23 @@
 - name: Resolve latest Go version
   when: go_version == "latest"
   block:
-    - name: Fetch latest Go version from go.dev
+    - name: Fetch available Go versions from go.dev
       uri:
-        url: https://go.dev/VERSION?m=text
+        url: https://go.dev/dl/?mode=json
         return_content: yes
         follow_redirects: all
-      register: go_latest_raw
+      register: go_versions_raw
       failed_when: false
 
-    - name: Set resolved Go version
+    - name: Set resolved Go version (latest stable)
       set_fact:
-        go_version: "{{ go_latest_raw.content.split('\n') | first | regex_replace('^go', '') }}"
-      when: go_latest_raw is succeeded and go_latest_raw.content is defined
+        go_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
+      when: go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
 
     - name: Fallback Go version if API unreachable
       set_fact:
         go_version: "1.23.4"
-      when: go_latest_raw is failed or go_latest_raw.content is not defined
+      when: go_versions_raw is failed or go_versions_raw.json is not defined or (go_versions_raw.json | length == 0)
 
 - name: Detect system architecture
   set_fact:
