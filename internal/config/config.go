@@ -251,6 +251,11 @@ func (c *Config) Marshal() ([]byte, error) {
 
 // ToExtraVars converts the config to a typed map for Ansible --extra-vars.
 // Booleans are passed as real booleans and lists as real lists in the JSON.
+//
+// Version fields set to "latest" are intentionally omitted so that the
+// playbook-level defaults take effect.  Ansible extra-vars have the highest
+// variable precedence, which would prevent the roles' set_fact tasks from
+// resolving "latest" to a real version number.
 func (c *Config) ToExtraVars() map[string]interface{} {
 	vars := map[string]interface{}{
 		"username":          c.Username,
@@ -265,14 +270,26 @@ func (c *Config) ToExtraVars() map[string]interface{} {
 		"podman_wsl_port":   c.PodmanWSLPort,
 		"install_bun":       c.InstallBun,
 		"install_go":        c.InstallGo,
-		"go_version":        c.GoVersion,
 		"install_dotnet":    c.InstallDotnet,
-		"dotnet_version":    c.DotnetVersion,
 		"install_python":    c.InstallPython,
-		"python_version":    c.PythonVersion,
 		"install_k9s":       c.InstallK9s,
 		"extra_packages":    c.ExtraPackages,
 	}
+
+	// Only pass version extra-vars when a specific version is requested.
+	// When "latest", the Ansible roles resolve the version themselves via
+	// API calls; omitting the extra-var lets set_fact override the
+	// playbook-level default.
+	if !strings.EqualFold(c.GoVersion, "latest") {
+		vars["go_version"] = c.GoVersion
+	}
+	if !strings.EqualFold(c.DotnetVersion, "latest") {
+		vars["dotnet_version"] = c.DotnetVersion
+	}
+	if !strings.EqualFold(c.PythonVersion, "latest") {
+		vars["python_version"] = c.PythonVersion
+	}
+
 	if c.ExtraPackages == nil {
 		vars["extra_packages"] = []string{}
 	}
