@@ -3,40 +3,37 @@
 
 - name: Debug initial go_version value
   debug:
-    msg: "Initial go_version: '{{ go_version }}'"
+    msg: "Initial go_version: '{{ go_version }}' (type: {{ go_version | type_debug }})"
 
-# Resolve "latest" to the actual latest stable Go version from go.dev.
-- name: Resolve latest Go version
-  when: go_version | string == "latest"
-  block:
-    - name: Fetch available Go versions from go.dev
-      uri:
-        url: https://go.dev/dl/?mode=json
-        return_content: yes
-        follow_redirects: all
-      register: go_versions_raw
-      failed_when: false
+# Always fetch the latest version info, we'll use it if needed
+- name: Fetch available Go versions from go.dev
+  uri:
+    url: https://go.dev/dl/?mode=json
+    return_content: yes
+    follow_redirects: all
+  register: go_versions_raw
+  failed_when: false
 
-    - name: Debug API response
-      debug:
-        msg: "API succeeded: {{ go_versions_raw is succeeded }}, Has json: {{ go_versions_raw.json is defined }}"
-      when: go_versions_raw is defined
-
-    - name: Set resolved Go version (latest stable)
-      set_fact:
-        go_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
-      when: go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
-
-    - name: Fallback Go version if API unreachable
-      set_fact:
-        go_version: "1.23.4"
-      when: go_versions_raw is failed or go_versions_raw.json is not defined or (go_versions_raw.json | length == 0)
-
-# Ensure version is never "latest" at this point
-- name: Final fallback if still "latest"
+- name: Extract latest Go version from API
   set_fact:
-    go_version: "1.23.4"
-  when: go_version | string == "latest"
+    go_latest_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
+  when: go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
+
+- name: Set fallback latest version if API failed
+  set_fact:
+    go_latest_version: "1.23.4"
+  when: go_latest_version is not defined
+
+# Now resolve go_version if it's "latest"
+- name: Use latest version if go_version is "latest"
+  set_fact:
+    go_version: "{{ go_latest_version }}"
+  when: go_version == "latest" or go_version == "Latest" or go_version | trim == "latest"
+
+- name: Ensure go_version is not empty
+  set_fact:
+    go_version: "{{ go_latest_version }}"
+  when: go_version == "" or go_version is none or go_version | trim == ""
 
 - name: Detect system architecture
   set_fact:
