@@ -56,6 +56,11 @@
         - /tmp/podman-remote.tar.gz
         - /tmp/bin
 
+    - name: Ensure pip is installed
+      apt:
+        name: python3-pip
+        state: present
+
     - name: Install podman-compose via pip
       pip:
         name: podman-compose

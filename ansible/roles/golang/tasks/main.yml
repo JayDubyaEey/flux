@@ -40,11 +40,20 @@
 - name: Install Go {{ go_version }}
   when: go_check.rc != 0 or go_version not in go_check.stdout | default('')
   block:
+    - name: Display download URL
+      debug:
+        msg: "Downloading from: https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+
     - name: Download Go
       get_url:
         url: "https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
         dest: /tmp/go.tar.gz
         mode: "0644"
+        timeout: 60
+      register: go_download
+      retries: 3
+      delay: 5
+      until: go_download is succeeded
 
     - name: Remove old Go installation
       file:
