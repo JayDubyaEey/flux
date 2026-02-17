@@ -1,54 +1,28 @@
----
 # --- Go toolchain ---
 
-- name: Debug initial go_version value
-  debug:
-    msg: "Initial go_version: '{{ go_version }}' (type: {{ go_version | type_debug }})"
-
-# Always fetch the latest version info, we'll use it if needed
+# Fetch latest version info when go_version is "latest"
 - name: Fetch available Go versions from go.dev
   uri:
     url: https://go.dev/dl/?mode=json
     return_content: yes
     follow_redirects: all
   register: go_versions_raw
+  when: go_version == "latest"
   failed_when: false
 
 - name: Extract latest Go version from API
   set_fact:
-    go_latest_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
-  when: go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
+    go_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
+  when: go_version == "latest" and go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
 
 - name: Set fallback latest version if API failed
   set_fact:
-    go_latest_version: "1.23.4"
-  when: go_latest_version is not defined
-
-- name: Debug extracted latest version
-  debug:
-    msg: "Extracted go_latest_version: '{{ go_latest_version }}'"
-
-# Now resolve go_version if it's "latest" (check multiple ways because string comparison in Ansible can be tricky)
-- name: Check if go_version contains 'latest'
-  set_fact:
-    go_version_is_latest: "{{ 'latest' in (go_version | lower) }}"
-
-- name: Debug latest check
-  debug:
-    msg: "go_version_is_latest: {{ go_version_is_latest }}, will use: {{ go_latest_version }}"
-
-- name: Use latest version if go_version is "latest"
-  set_fact:
-    go_version: "{{ go_latest_version }}"
-  when: go_version_is_latest | bool
+    go_version: "1.23.4"
+  when: go_version == "latest"
 
 - name: Detect system architecture
   set_fact:
     go_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
-
-- name: Display target Go version
-  debug:
-    msg: "Target Go version: {{ go_version }} ({{ go_arch }})"
 
 - name: Check if Go is installed
   command: /usr/local/go/bin/go version
@@ -59,10 +33,6 @@
 - name: Install Go {{ go_version }}
   when: go_check.rc != 0 or go_version not in go_check.stdout | default('')
   block:
-    - name: Display download URL
-      debug:
-        msg: "Downloading from: https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
-
     - name: Download Go
       get_url:
         url: "https://dl.google.com/go/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
