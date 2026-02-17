@@ -1,9 +1,13 @@
 ---
 # --- Go toolchain ---
 
+- name: Debug initial go_version value
+  debug:
+    msg: "Initial go_version: '{{ go_version }}'"
+
 # Resolve "latest" to the actual latest stable Go version from go.dev.
 - name: Resolve latest Go version
-  when: go_version == "latest"
+  when: go_version | string == "latest"
   block:
     - name: Fetch available Go versions from go.dev
       uri:
@@ -12,6 +16,11 @@
         follow_redirects: all
       register: go_versions_raw
       failed_when: false
+
+    - name: Debug API response
+      debug:
+        msg: "API succeeded: {{ go_versions_raw is succeeded }}, Has json: {{ go_versions_raw.json is defined }}"
+      when: go_versions_raw is defined
 
     - name: Set resolved Go version (latest stable)
       set_fact:
@@ -22,6 +31,12 @@
       set_fact:
         go_version: "1.23.4"
       when: go_versions_raw is failed or go_versions_raw.json is not defined or (go_versions_raw.json | length == 0)
+
+# Ensure version is never "latest" at this point
+- name: Final fallback if still "latest"
+  set_fact:
+    go_version: "1.23.4"
+  when: go_version | string == "latest"
 
 - name: Detect system architecture
   set_fact:
