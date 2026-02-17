@@ -29,7 +29,6 @@ type Config struct {
 	PodmanWSLPort   string   `yaml:"podman_wsl_port,omitempty"`
 	InstallBun      bool     `yaml:"install_bun"`
 	InstallGo       bool     `yaml:"install_go"`
-	GoVersion       string   `yaml:"go_version,omitempty"`
 	InstallDotnet   bool     `yaml:"install_dotnet"`
 	DotnetVersion   string   `yaml:"dotnet_version,omitempty"`
 	InstallPython   bool     `yaml:"install_python"`
@@ -53,7 +52,6 @@ func DefaultConfig() *Config {
 		PodmanWSLPort:   "22",
 		InstallBun:      true,
 		InstallGo:       true,
-		GoVersion:       "latest",
 		InstallDotnet:   true,
 		DotnetVersion:   "latest",
 		InstallPython:   true,
@@ -195,12 +193,6 @@ func PromptForConfig(existing *Config) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.InstallGo {
-		cfg.GoVersion, err = prompt(reader, "Go version (or 'latest')", cfg.GoVersion, "latest")
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	cfg.InstallDotnet, err = promptBool(reader, "Install .NET SDK?", cfg.InstallDotnet)
 	if err != nil {
@@ -280,9 +272,7 @@ func (c *Config) ToExtraVars() map[string]interface{} {
 	// When "latest", the Ansible roles resolve the version themselves via
 	// API calls; omitting the extra-var lets set_fact override the
 	// playbook-level default.
-	if !strings.EqualFold(c.GoVersion, "latest") {
-		vars["go_version"] = c.GoVersion
-	}
+	// Note: Go always installs latest; no version pinning supported.
 	if !strings.EqualFold(c.DotnetVersion, "latest") {
 		vars["dotnet_version"] = c.DotnetVersion
 	}

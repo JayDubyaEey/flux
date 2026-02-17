@@ -1,24 +1,24 @@
+---
 # --- Go toolchain ---
+# Always installs the latest stable Go version
 
-# Fetch latest version info when go_version is "latest"
-- name: Fetch available Go versions from go.dev
+- name: Fetch latest Go version from go.dev
   uri:
     url: https://go.dev/dl/?mode=json
     return_content: yes
     follow_redirects: all
   register: go_versions_raw
-  when: go_version == "latest"
   failed_when: false
 
 - name: Extract latest Go version from API
   set_fact:
     go_version: "{{ (go_versions_raw.json | first).version | regex_replace('^go', '') }}"
-  when: go_version == "latest" and go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
+  when: go_versions_raw is succeeded and go_versions_raw.json is defined and (go_versions_raw.json | length > 0)
 
-- name: Set fallback latest version if API failed
+- name: Set fallback version if API failed
   set_fact:
     go_version: "1.23.4"
-  when: go_version == "latest"
+  when: go_version is not defined
 
 - name: Detect system architecture
   set_fact:
@@ -59,3 +59,12 @@
       file:
         path: /tmp/go.tar.gz
         state: absent
+
+- name: Add Go to PATH
+  copy:
+    dest: /etc/profile.d/go.sh
+    content: |
+      export PATH=$PATH:/usr/local/go/bin
+      export GOPATH=$HOME/go
+      export PATH=$PATH:$GOPATH/bin
+    mode: '0644'

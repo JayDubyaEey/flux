@@ -20,7 +20,6 @@
     podman_wsl_user: "{{ username }}"
     install_bun: true
     install_go: true
-    go_version: "latest"
     install_dotnet: true
     dotnet_version: "latest"
     install_python: true
