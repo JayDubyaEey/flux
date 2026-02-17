@@ -24,16 +24,23 @@
     go_latest_version: "1.23.4"
   when: go_latest_version is not defined
 
-# Now resolve go_version if it's "latest"
+- name: Debug extracted latest version
+  debug:
+    msg: "Extracted go_latest_version: '{{ go_latest_version }}'"
+
+# Now resolve go_version if it's "latest" (check multiple ways because string comparison in Ansible can be tricky)
+- name: Check if go_version contains 'latest'
+  set_fact:
+    go_version_is_latest: "{{ 'latest' in (go_version | lower) }}"
+
+- name: Debug latest check
+  debug:
+    msg: "go_version_is_latest: {{ go_version_is_latest }}, will use: {{ go_latest_version }}"
+
 - name: Use latest version if go_version is "latest"
   set_fact:
     go_version: "{{ go_latest_version }}"
-  when: go_version == "latest" or go_version == "Latest" or go_version | trim == "latest"
-
-- name: Ensure go_version is not empty
-  set_fact:
-    go_version: "{{ go_latest_version }}"
-  when: go_version == "" or go_version is none or go_version | trim == ""
+  when: go_version_is_latest | bool
 
 - name: Detect system architecture
   set_fact:
