@@ -26,6 +26,9 @@ if [ -d /usr/local/go/bin ]; then
 fi
 
 {% if install_podman | default(false) | bool %}
+# Podman Desktop connection (Windows → WSL)
+export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman.sock
+
 # Podman → Docker alias
 alias docker="podman"
 {% endif %}

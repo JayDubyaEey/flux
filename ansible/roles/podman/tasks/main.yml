@@ -1,100 +1,18 @@
 ---
-# --- Podman Remote Client (lightweight — no local container runtime) ---
+# --- Podman Client for connecting to Podman Desktop on Windows ---
 
-- name: Check if podman-remote is installed
-  command: podman-remote --version
-  register: podman_check
-  failed_when: false
-  changed_when: false
+- name: Install podman package from Ubuntu repos
+  apt:
+    name: podman
+    state: present
+    update_cache: yes
 
-- name: Install podman-remote client from GitHub
-  when: podman_check.rc != 0
-  block:
-    - name: Get latest Podman release tag from GitHub
-      uri:
-        url: https://api.github.com/repos/containers/podman/releases/latest
-        return_content: true
-        headers:
-          Accept: application/vnd.github+json
-      register: podman_release
+- name: Ensure pip is installed
+  apt:
+    name: python3-pip
+    state: present
 
-    - name: Set podman version fact
-      set_fact:
-        podman_ver: "{{ podman_release.json.tag_name | regex_replace('^v', '') }}"
-
-    - name: Download podman-remote binary
-      get_url:
-        url: "https://github.com/containers/podman/releases/download/v{{ podman_ver }}/podman-remote-static-linux_amd64.tar.gz"
-        dest: "/tmp/podman-remote.tar.gz"
-        mode: "0644"
-
-    - name: Extract podman-remote binary
-      unarchive:
-        src: "/tmp/podman-remote.tar.gz"
-        dest: /tmp
-        remote_src: true
-
-    - name: Install podman-remote to /usr/local/bin
-      copy:
-        src: "/tmp/bin/podman-remote-static-linux_amd64"
-        dest: /usr/local/bin/podman-remote
-        remote_src: true
-        mode: "0755"
-
-    - name: Symlink podman → podman-remote
-      file:
-        src: /usr/local/bin/podman-remote
-        dest: /usr/local/bin/podman
-        state: link
-        force: true
-
-    - name: Clean up downloaded archive
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /tmp/podman-remote.tar.gz
-        - /tmp/bin
-
-    - name: Ensure pip is installed
-      apt:
-        name: python3-pip
-        state: present
-
-    - name: Install podman-compose via pip
-      pip:
-        name: podman-compose
-        state: present
-
-- name: Configure Podman remote connection
-  become: true
-  become_user: "{{ username }}"
-  block:
-    - name: Ensure podman config directory exists
-      file:
-        path: "/home/{{ username }}/.config/containers"
-        state: directory
-        mode: "0755"
-
-    - name: Deploy containers.conf with remote connection
-      copy:
-        dest: "/home/{{ username }}/.config/containers/containers.conf"
-        owner: "{{ username }}"
-        group: "{{ username }}"
-        mode: "0644"
-        content: |
-          [engine]
-          remote = true
-          [engine.service_destinations]
-            [engine.service_destinations.{{ podman_wsl_distro }}]
-            uri = "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock"
-            identity = "/home/{{ username }}/.ssh/id_ed25519"
-
-    - name: Deploy podman-connections.conf
-      copy:
-        dest: "/home/{{ username }}/.config/containers/podman-connections.conf"
-        owner: "{{ username }}"
-        group: "{{ username }}"
-        mode: "0644"
-        content: |
-          {"Connection": {"Default": "{{ podman_wsl_distro }}", "Connections": {"{{ podman_wsl_distro }}": {"URI": "ssh://{{ podman_wsl_user }}@{{ podman_wsl_host }}:{{ podman_wsl_port }}/run/user/1000/podman/podman.sock", "Identity": "/home/{{ username }}/.ssh/id_ed25519"}}}}
+- name: Install podman-compose via pip
+  pip:
+    name: podman-compose
+    state: present
