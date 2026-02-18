@@ -29,8 +29,9 @@ fi
 # Podman Desktop connection (Windows → WSL)
 export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman.sock
 
-# Podman → Docker alias
+# Docker backwards-compatibility aliases
 alias docker="podman"
+alias docker-compose="podman-compose"
 {% endif %}
 
 # Bun

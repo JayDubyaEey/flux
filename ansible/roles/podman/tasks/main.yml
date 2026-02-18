@@ -1,10 +1,18 @@
 ---
 # --- Podman Client for connecting to Podman Desktop on Windows ---
 # Based on: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
+#
+# Installs podman as a remote client (no local engine) that connects to
+# Podman Desktop running on Windows via a shared WSL socket.
+# Also provides full Docker backwards-compatibility (docker → podman).
 
-- name: Install podman package from Ubuntu repos
+# ── 1. Package Installation ─────────────────────────────────────────────────
+
+- name: Install podman and podman-docker packages
   apt:
-    name: podman
+    name:
+      - podman
+      - podman-docker
     state: present
     update_cache: yes
 
@@ -13,7 +21,7 @@
     name: pipx
     state: present
 
-- name: Ensure pipx path is set up
+- name: Ensure pipx path is set up for {{ username }}
   shell: pipx ensurepath
   become: true
   become_user: "{{ username }}"
@@ -27,67 +35,111 @@
   args:
     creates: "/home/{{ username }}/.local/bin/podman-compose"
 
-- name: Verify Podman Desktop socket exists
+# ── 2. Socket Detection ─────────────────────────────────────────────────────
+# Podman Desktop versions may expose the socket at different paths.
+# We check both and use whichever exists (prefer podman.sock).
+
+- name: Check for Podman Desktop socket (primary path)
   stat:
     path: /mnt/wsl/podman-sockets/podman.sock
-  register: podman_socket
-  failed_when: false
+  register: podman_socket_primary
 
-- name: Check if Podman socket is actively listening
-  shell: test -S /mnt/wsl/podman-sockets/podman.sock
-  register: socket_listening
+- name: Check for Podman Desktop socket (alternative path)
+  stat:
+    path: /mnt/wsl/podman-sockets/podman-machine-default-api.sock
+  register: podman_socket_alt
+
+- name: Set detected socket path
+  set_fact:
+    podman_socket_path: >-
+      {%- if podman_socket_primary.stat.exists -%}
+        /mnt/wsl/podman-sockets/podman.sock
+      {%- elif podman_socket_alt.stat.exists -%}
+        /mnt/wsl/podman-sockets/podman-machine-default-api.sock
+      {%- else -%}
+        none
+      {%- endif -%}
+
+- name: Verify detected socket is a valid socket file
+  shell: "test -S {{ podman_socket_path }}"
+  register: socket_valid
   failed_when: false
   changed_when: false
-  when: podman_socket.stat.exists
+  when: podman_socket_path != 'none'
 
-- name: Warning if Podman Desktop socket not found
+- name: Set socket availability fact
+  set_fact:
+    podman_socket_available: >-
+      {{ podman_socket_path != 'none' and
+         (socket_valid.rc | default(1)) == 0 }}
+
+# ── 3. Warning if no socket found ───────────────────────────────────────────
+
+- name: Warning — Podman Desktop socket not found
   debug:
     msg: |
-      WARNING: Podman Desktop socket not found at /mnt/wsl/podman-sockets/podman.sock.
-      
+      ⚠ Podman Desktop socket not found.
+
+      Checked:
+        - /mnt/wsl/podman-sockets/podman.sock
+        - /mnt/wsl/podman-sockets/podman-machine-default-api.sock
+
       Please ensure:
-      1. Podman Desktop is installed and running on Windows
-      2. The Podman machine is STARTED in Podman Desktop (not just installed)
-      3. WSL integration is enabled in Podman Desktop settings
-      
-      To start the machine:
-      - Open Podman Desktop
-      - Go to the "Podman" section
-      - Click "Start" on the Podman machine
-  when: not podman_socket.stat.exists or socket_listening.rc != 0
+        1. Podman Desktop is installed and running on Windows
+        2. The Podman machine is STARTED (not just installed)
+        3. WSL integration is enabled in Podman Desktop settings:
+           Settings → Resources → Podman → ⋮ → Edit WSL instances
+
+      After fixing, re-run flux setup.
+  when: not podman_socket_available | bool
+
+# ── 4. Idempotent Connection Setup ──────────────────────────────────────────
 
 - name: Configure Podman connection to Podman Desktop
   become: true
   become_user: "{{ username }}"
-  when: podman_socket.stat.exists and socket_listening.rc == 0
+  when: podman_socket_available | bool
   block:
-    - name: Remove old podman configuration files
+    - name: Ensure containers config directory exists
       file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "/home/{{ username }}/.config/containers/containers.conf"
-        - "/home/{{ username }}/.config/containers/podman-connections.conf"
-      failed_when: false
+        path: "/home/{{ username }}/.config/containers"
+        state: directory
+        mode: "0755"
 
-    - name: Remove any old/stale connections
-      shell: |
-        for conn in $(timeout 3 podman system connection list --format '{{'{{.Name}}'}}' 2>/dev/null || true); do
-          timeout 3 podman system connection remove "$conn" 2>/dev/null || true
-        done
+    - name: List existing podman connections
+      shell: >
+        podman system connection list --format '{{'{{.Name}} {{.URI}}'}}'
+      register: podman_connections
       changed_when: false
       failed_when: false
 
-    - name: Add Podman Desktop connection
-      shell: |
-        podman system connection add \
-          podman-desktop \
-          unix:///mnt/wsl/podman-sockets/podman.sock
+    - name: Determine if podman-desktop connection needs updating
+      set_fact:
+        podman_connection_exists: >-
+          {{ 'podman-desktop' in (podman_connections.stdout | default('')) }}
+        podman_connection_correct: >-
+          {{ ('podman-desktop unix://' ~ podman_socket_path) in
+             (podman_connections.stdout | default('')) }}
+
+    - name: Remove stale podman-desktop connection
+      shell: podman system connection remove podman-desktop
+      when: podman_connection_exists | bool and not podman_connection_correct | bool
+      changed_when: true
+      failed_when: false
+
+    - name: Add podman-desktop connection
+      shell: >
+        podman system connection add
+        podman-desktop
+        unix://{{ podman_socket_path }}
+      when: not podman_connection_correct | bool
       changed_when: true
 
     - name: Set podman-desktop as default connection
       shell: podman system connection default podman-desktop
+      register: set_default_result
       changed_when: true
+      failed_when: false
 
     - name: Verify Podman connection works
       shell: timeout 5 podman version
@@ -97,20 +149,21 @@
 
     - name: Display Podman connection status
       debug:
-        msg: "Podman successfully connected to Podman Desktop"
+        msg: "✓ Podman successfully connected to Podman Desktop via {{ podman_socket_path }}"
       when: podman_version.rc == 0
 
-    - name: Warning if Podman connection fails
+    - name: Warning — Podman connection test failed
       debug:
         msg: |
-          WARNING: Podman connection test failed or timed out.
-          
-          This usually means the Podman machine in Podman Desktop is not running.
-          
-          To fix this:
-          1. Open Podman Desktop on Windows
-          2. Go to the "Podman" or "Machines" section
-          3. START the Podman machine (click the Start button)
-          4. Wait for it to show "Running" status
-          5. Re-run flux setup
+          ⚠ Podman connection test failed or timed out.
+
+          Socket detected at: {{ podman_socket_path }}
+          This usually means the Podman machine is not running.
+
+          To fix:
+            1. Open Podman Desktop on Windows
+            2. Go to "Podman" or "Machines" section
+            3. Start the Podman machine
+            4. Wait for "Running" status
+            5. Re-run flux setup
       when: podman_version.rc != 0
