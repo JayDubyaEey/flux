@@ -27,10 +27,10 @@ fi
 
 {% if install_podman | default(false) | bool %}
 # Podman Desktop connection (Windows → WSL)
-# Prefer rootless socket; fall back to rootful
-if [ -S /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock ]; then
+# Note: WSL cross-distro sockets appear as regular files, so use -e not -S
+if [ -e /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock ]; then
     export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
-elif [ -S /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock ]; then
+elif [ -e /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock ]; then
     export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
 fi
 

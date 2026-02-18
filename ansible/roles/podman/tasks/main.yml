@@ -41,6 +41,10 @@
 #   - Rootful:  /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
 # We check for both and configure whichever are available.
 
+# NOTE: In WSL, sockets shared across distros via /mnt/wsl appear as regular
+# files to stat/test -S, but function correctly as sockets. We only check
+# for file existence here; actual connectivity is verified by `podman version`.
+
 - name: Check for rootless Podman socket
   stat:
     path: /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
@@ -51,33 +55,13 @@
     path: /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
   register: podman_socket_rootful
 
-- name: Verify rootless socket is valid
-  shell: test -S /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
-  register: rootless_socket_valid
-  failed_when: false
-  changed_when: false
-  when: podman_socket_rootless.stat.exists
-
-- name: Verify rootful socket is valid
-  shell: test -S /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
-  register: rootful_socket_valid
-  failed_when: false
-  changed_when: false
-  when: podman_socket_rootful.stat.exists
-
 - name: Set socket availability facts
   set_fact:
-    podman_rootless_available: >-
-      {{ podman_socket_rootless.stat.exists and
-         (rootless_socket_valid.rc | default(1)) == 0 }}
-    podman_rootful_available: >-
-      {{ podman_socket_rootful.stat.exists and
-         (rootful_socket_valid.rc | default(1)) == 0 }}
+    podman_rootless_available: "{{ podman_socket_rootless.stat.exists }}"
+    podman_rootful_available: "{{ podman_socket_rootful.stat.exists }}"
     podman_any_socket_available: >-
-      {{ (podman_socket_rootless.stat.exists and
-          (rootless_socket_valid.rc | default(1)) == 0) or
-         (podman_socket_rootful.stat.exists and
-          (rootful_socket_valid.rc | default(1)) == 0) }}
+      {{ podman_socket_rootless.stat.exists or
+         podman_socket_rootful.stat.exists }}
 
 # ── 3. Warning if no socket found ───────────────────────────────────────────
 
