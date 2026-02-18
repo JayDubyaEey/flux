@@ -163,20 +163,6 @@ func PromptForConfig(existing *Config) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.InstallPodman {
-		cfg.PodmanWSLDistro, err = prompt(reader, "Podman WSL distro name", cfg.PodmanWSLDistro, "podman-machine")
-		if err != nil {
-			return nil, err
-		}
-		cfg.PodmanWSLHost, err = prompt(reader, "Podman WSL host", cfg.PodmanWSLHost, "localhost")
-		if err != nil {
-			return nil, err
-		}
-		cfg.PodmanWSLPort, err = prompt(reader, "Podman WSL SSH port", cfg.PodmanWSLPort, "22")
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	cfg.InstallBun, err = promptBool(reader, "Install Bun?", cfg.InstallBun)
 	if err != nil {
@@ -186,6 +172,12 @@ func PromptForConfig(existing *Config) (*Config, error) {
 	cfg.InstallGo, err = promptBool(reader, "Install Go?", cfg.InstallGo)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.InstallGo {
+		cfg.GoVersion, err = prompt(reader, "Go version (or 'latest')", cfg.GoVersion, "latest")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cfg.InstallDotnet, err = promptBool(reader, "Install .NET SDK?", cfg.InstallDotnet)
@@ -244,29 +236,28 @@ func (c *Config) Marshal() ([]byte, error) {
 // resolving "latest" to a real version number.
 func (c *Config) ToExtraVars() map[string]interface{} {
 	vars := map[string]interface{}{
-		"username":          c.Username,
-		"email":             c.Email,
-		"git_name":          c.GitName,
-		"git_email":         c.GitEmail,
-		"git_https":         c.GitHTTPS,
-		"default_shell":     c.DefaultShell,
-		"install_podman":    c.InstallPodman,
-		"podman_wsl_distro": c.PodmanWSLDistro,
-		"podman_wsl_host":   c.PodmanWSLHost,
-		"podman_wsl_port":   c.PodmanWSLPort,
-		"install_bun":       c.InstallBun,
-		"install_go":        c.InstallGo,
-		"install_dotnet":    c.InstallDotnet,
-		"install_python":    c.InstallPython,
-		"install_k9s":       c.InstallK9s,
-		"extra_packages":    c.ExtraPackages,
+		"username":       c.Username,
+		"email":          c.Email,
+		"git_name":       c.GitName,
+		"git_email":      c.GitEmail,
+		"git_https":      c.GitHTTPS,
+		"default_shell":  c.DefaultShell,
+		"install_podman": c.InstallPodman,
+		"install_bun":    c.InstallBun,
+		"install_go":     c.InstallGo,
+		"install_dotnet": c.InstallDotnet,
+		"install_python": c.InstallPython,
+		"install_k9s":    c.InstallK9s,
+		"extra_packages": c.ExtraPackages,
 	}
 
 	// Only pass version extra-vars when a specific version is requested.
 	// When "latest", the Ansible roles resolve the version themselves via
 	// API calls; omitting the extra-var lets set_fact override the
 	// playbook-level default.
-	// Note: Go always installs latest; no version pinning supported.
+	if !strings.EqualFold(c.GoVersion, "latest") {
+		vars["go_version"] = c.GoVersion
+	}
 	if !strings.EqualFold(c.DotnetVersion, "latest") {
 		vars["dotnet_version"] = c.DotnetVersion
 	}
