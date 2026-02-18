@@ -513,9 +513,6 @@ func (m *model) initEditFields() {
 		{"git_https", "GitHub HTTPS (true/false)", config.BoolStr(cfg.GitHTTPS)},
 		{"default_shell", "Shell (bash/zsh)", cfg.DefaultShell},
 		{"install_podman", "Install Podman (true/false)", config.BoolStr(cfg.InstallPodman)},
-		{"podman_wsl_distro", "Podman WSL Distro", cfg.PodmanWSLDistro},
-		{"podman_wsl_host", "Podman WSL Host", cfg.PodmanWSLHost},
-		{"podman_wsl_port", "Podman WSL Port", cfg.PodmanWSLPort},
 		{"install_bun", "Install Bun (true/false)", config.BoolStr(cfg.InstallBun)},
 		{"install_go", "Install Go (true/false)", config.BoolStr(cfg.InstallGo)},
 		{"go_version", "Go Version (latest)", cfg.GoVersion},
@@ -549,12 +546,6 @@ func (m *model) applyEditFields() {
 			m.cfg.DefaultShell = f.value
 		case "install_podman":
 			m.cfg.InstallPodman = parseBool(f.value)
-		case "podman_wsl_distro":
-			m.cfg.PodmanWSLDistro = f.value
-		case "podman_wsl_host":
-			m.cfg.PodmanWSLHost = f.value
-		case "podman_wsl_port":
-			m.cfg.PodmanWSLPort = f.value
 		case "install_bun":
 			m.cfg.InstallBun = parseBool(f.value)
 		case "install_go":

@@ -17,25 +17,22 @@ const (
 
 // Config holds all user-specific settings passed to Ansible as extra vars.
 type Config struct {
-	Username        string   `yaml:"username"`
-	Email           string   `yaml:"email"`
-	GitName         string   `yaml:"git_name"`
-	GitEmail        string   `yaml:"git_email"`
-	GitHTTPS        bool     `yaml:"git_https"`
-	DefaultShell    string   `yaml:"default_shell"`
-	InstallPodman   bool     `yaml:"install_podman"`
-	PodmanWSLDistro string   `yaml:"podman_wsl_distro,omitempty"`
-	PodmanWSLHost   string   `yaml:"podman_wsl_host,omitempty"`
-	PodmanWSLPort   string   `yaml:"podman_wsl_port,omitempty"`
-	InstallBun      bool     `yaml:"install_bun"`
-	InstallGo       bool     `yaml:"install_go"`
-	GoVersion       string   `yaml:"go_version,omitempty"`
-	InstallDotnet   bool     `yaml:"install_dotnet"`
-	DotnetVersion   string   `yaml:"dotnet_version,omitempty"`
-	InstallPython   bool     `yaml:"install_python"`
-	PythonVersion   string   `yaml:"python_version,omitempty"`
-	InstallK9s      bool     `yaml:"install_k9s"`
-	ExtraPackages   []string `yaml:"extra_packages,omitempty"`
+	Username      string   `yaml:"username"`
+	Email         string   `yaml:"email"`
+	GitName       string   `yaml:"git_name"`
+	GitEmail      string   `yaml:"git_email"`
+	GitHTTPS      bool     `yaml:"git_https"`
+	DefaultShell  string   `yaml:"default_shell"`
+	InstallPodman bool     `yaml:"install_podman"`
+	InstallBun    bool     `yaml:"install_bun"`
+	InstallGo     bool     `yaml:"install_go"`
+	GoVersion     string   `yaml:"go_version,omitempty"`
+	InstallDotnet bool     `yaml:"install_dotnet"`
+	DotnetVersion string   `yaml:"dotnet_version,omitempty"`
+	InstallPython bool     `yaml:"install_python"`
+	PythonVersion string   `yaml:"python_version,omitempty"`
+	InstallK9s    bool     `yaml:"install_k9s"`
+	ExtraPackages []string `yaml:"extra_packages,omitempty"`
 }
 
 // validShells is the set of supported shell values.
@@ -44,15 +41,12 @@ var validShells = map[string]bool{"bash": true, "zsh": true}
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Username:        whoami(),
-		GitHTTPS:        true,
-		DefaultShell:    "zsh",
-		InstallPodman:   true,
-		PodmanWSLDistro: "podman-machine",
-		PodmanWSLHost:   "localhost",
-		PodmanWSLPort:   "22",
-		InstallBun:      true,
-		InstallGo:       true, GoVersion: "latest", InstallDotnet: true,
+		Username:      whoami(),
+		GitHTTPS:      true,
+		DefaultShell:  "zsh",
+		InstallPodman: true,
+		InstallBun:    true,
+		InstallGo:     true, GoVersion: "latest", InstallDotnet: true,
 		DotnetVersion: "latest",
 		InstallPython: true,
 		PythonVersion: "latest",
