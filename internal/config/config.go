@@ -29,6 +29,7 @@ type Config struct {
 	PodmanWSLPort   string   `yaml:"podman_wsl_port,omitempty"`
 	InstallBun      bool     `yaml:"install_bun"`
 	InstallGo       bool     `yaml:"install_go"`
+	GoVersion       string   `yaml:"go_version,omitempty"`
 	InstallDotnet   bool     `yaml:"install_dotnet"`
 	DotnetVersion   string   `yaml:"dotnet_version,omitempty"`
 	InstallPython   bool     `yaml:"install_python"`
@@ -51,13 +52,12 @@ func DefaultConfig() *Config {
 		PodmanWSLHost:   "localhost",
 		PodmanWSLPort:   "22",
 		InstallBun:      true,
-		InstallGo:       true,
-		InstallDotnet:   true,
-		DotnetVersion:   "latest",
-		InstallPython:   true,
-		PythonVersion:   "latest",
-		InstallK9s:      true,
-		ExtraPackages:   []string{"ripgrep", "fd-find", "jq", "htop"},
+		InstallGo:       true, GoVersion: "latest", InstallDotnet: true,
+		DotnetVersion: "latest",
+		InstallPython: true,
+		PythonVersion: "latest",
+		InstallK9s:    true,
+		ExtraPackages: []string{"ripgrep", "fd-find", "jq", "htop"},
 	}
 }
 
