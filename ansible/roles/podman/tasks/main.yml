@@ -16,3 +16,29 @@
   pip:
     name: podman-compose
     state: present
+
+- name: Configure Podman connection to Podman Desktop
+  become: true
+  become_user: "{{ username }}"
+  block:
+    - name: Check if podman-desktop connection exists
+      shell: podman system connection list | grep -q '^podman-desktop'
+      register: connection_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Remove existing podman-desktop connection
+      shell: podman system connection remove podman-desktop
+      when: connection_exists.rc == 0
+      changed_when: true
+
+    - name: Add Podman Desktop connection
+      shell: |
+        podman system connection add \
+          podman-desktop \
+          unix:///mnt/wsl/podman-sockets/podman.sock
+      changed_when: true
+
+    - name: Set podman-desktop as default connection
+      shell: podman system connection default podman-desktop
+      changed_when: true
