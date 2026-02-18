@@ -20,12 +20,8 @@
 
     - name: Set resolved Python version (major.minor)
       set_fact:
-        python_version: >-
-          {{ python_releases_raw.json
-              | selectattr('eol', 'equalto', false)
-              | map(attribute='cycle')
-              | first }}
-      when: python_releases_raw is succeeded and python_releases_raw.json is defined
+        python_version: "{{ python_releases_raw.json[0].cycle }}"
+      when: python_releases_raw is succeeded and python_releases_raw.json is defined and python_releases_raw.json | length > 0
 
     - name: Fallback Python version if API unreachable
       set_fact:
