@@ -102,71 +102,42 @@
         mode: "0755"
 
     - name: List existing podman connections
-      shell: >
-        podman system connection list --format '{{'{{.Name}} {{.URI}}'}}'
+      shell: podman system connection list --format '{{'{{.Name}}'}}'
       register: podman_connections
       changed_when: false
       failed_when: false
 
     # ── Rootless connection ──────────────────────────────────────────────
 
-    - name: Check if rootless connection needs updating
-      set_fact:
-        rootless_conn_exists: >-
-          {{ 'podman-machine-default-user' in (podman_connections.stdout | default('')) }}
-        rootless_conn_correct: >-
-          {{ 'podman-machine-default-user unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock'
-             in (podman_connections.stdout | default('')) }}
-      when: podman_rootless_available | bool
-
-    - name: Remove stale rootless connection
+    - name: Remove existing rootless connection
       shell: podman system connection remove podman-machine-default-user
       when:
         - podman_rootless_available | bool
-        - rootless_conn_exists | default(false) | bool
-        - not (rootless_conn_correct | default(false) | bool)
+        - "'podman-machine-default-user' in (podman_connections.stdout | default(''))"
       changed_when: true
       failed_when: false
 
     - name: Add rootless connection
-      shell: >-
-        podman system connection add
-        podman-machine-default-user
-        unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
-      when:
-        - podman_rootless_available | bool
-        - not (rootless_conn_correct | default(false) | bool)
+      shell: "podman system connection add podman-machine-default-user unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock"
+      when: podman_rootless_available | bool
       changed_when: true
+      failed_when: false
 
     # ── Rootful connection ───────────────────────────────────────────────
 
-    - name: Check if rootful connection needs updating
-      set_fact:
-        rootful_conn_exists: >-
-          {{ 'podman-machine-default-root' in (podman_connections.stdout | default('')) }}
-        rootful_conn_correct: >-
-          {{ 'podman-machine-default-root unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock'
-             in (podman_connections.stdout | default('')) }}
-      when: podman_rootful_available | bool
-
-    - name: Remove stale rootful connection
+    - name: Remove existing rootful connection
       shell: podman system connection remove podman-machine-default-root
       when:
         - podman_rootful_available | bool
-        - rootful_conn_exists | default(false) | bool
-        - not (rootful_conn_correct | default(false) | bool)
+        - "'podman-machine-default-root' in (podman_connections.stdout | default(''))"
       changed_when: true
       failed_when: false
 
     - name: Add rootful connection
-      shell: >-
-        podman system connection add
-        podman-machine-default-root
-        unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
-      when:
-        - podman_rootful_available | bool
-        - not (rootful_conn_correct | default(false) | bool)
+      shell: "podman system connection add podman-machine-default-root unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock"
+      when: podman_rootful_available | bool
       changed_when: true
+      failed_when: false
 
     # ── Set default (prefer rootless) ────────────────────────────────────
 
