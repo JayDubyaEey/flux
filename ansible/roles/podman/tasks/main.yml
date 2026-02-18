@@ -24,15 +24,33 @@
   register: podman_socket
   failed_when: false
 
+- name: Check if Podman socket is actively listening
+  shell: test -S /mnt/wsl/podman-sockets/podman.sock
+  register: socket_listening
+  failed_when: false
+  changed_when: false
+  when: podman_socket.stat.exists
+
 - name: Warning if Podman Desktop socket not found
   debug:
-    msg: "WARNING: Podman Desktop socket not found at /mnt/wsl/podman-sockets/podman.sock. Ensure Podman Desktop is running on Windows."
-  when: not podman_socket.stat.exists
+    msg: |
+      WARNING: Podman Desktop socket not found at /mnt/wsl/podman-sockets/podman.sock.
+      
+      Please ensure:
+      1. Podman Desktop is installed and running on Windows
+      2. The Podman machine is STARTED in Podman Desktop (not just installed)
+      3. WSL integration is enabled in Podman Desktop settings
+      
+      To start the machine:
+      - Open Podman Desktop
+      - Go to the "Podman" section
+      - Click "Start" on the Podman machine
+  when: not podman_socket.stat.exists or socket_listening.rc != 0
 
 - name: Configure Podman connection to Podman Desktop
   become: true
   become_user: "{{ username }}"
-  when: podman_socket.stat.exists
+  when: podman_socket.stat.exists and socket_listening.rc == 0
   block:
     - name: Remove old podman configuration files
       file:
@@ -45,8 +63,8 @@
 
     - name: Remove any old/stale connections
       shell: |
-        for conn in $(podman system connection list --format '{{'{{.Name}}'}}' 2>/dev/null || true); do
-          podman system connection remove "$conn" 2>/dev/null || true
+        for conn in $(timeout 3 podman system connection list --format '{{'{{.Name}}'}}' 2>/dev/null || true); do
+          timeout 3 podman system connection remove "$conn" 2>/dev/null || true
         done
       changed_when: false
       failed_when: false
@@ -63,7 +81,7 @@
       changed_when: true
 
     - name: Verify Podman connection works
-      shell: podman version
+      shell: timeout 5 podman version
       register: podman_version
       failed_when: false
       changed_when: false
@@ -75,5 +93,15 @@
 
     - name: Warning if Podman connection fails
       debug:
-        msg: "WARNING: Podman connection test failed. Ensure Podman Desktop is running on Windows and the machine is started."
+        msg: |
+          WARNING: Podman connection test failed or timed out.
+          
+          This usually means the Podman machine in Podman Desktop is not running.
+          
+          To fix this:
+          1. Open Podman Desktop on Windows
+          2. Go to the "Podman" or "Machines" section
+          3. START the Podman machine (click the Start button)
+          4. Wait for it to show "Running" status
+          5. Re-run flux setup
       when: podman_version.rc != 0
