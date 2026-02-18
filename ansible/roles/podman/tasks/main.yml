@@ -1,5 +1,6 @@
 ---
 # --- Podman Client for connecting to Podman Desktop on Windows ---
+# Based on: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
 
 - name: Install podman package from Ubuntu repos
   apt:
@@ -17,9 +18,21 @@
     name: podman-compose
     state: present
 
+- name: Verify Podman Desktop socket exists
+  stat:
+    path: /mnt/wsl/podman-sockets/podman.sock
+  register: podman_socket
+  failed_when: false
+
+- name: Warning if Podman Desktop socket not found
+  debug:
+    msg: "WARNING: Podman Desktop socket not found at /mnt/wsl/podman-sockets/podman.sock. Ensure Podman Desktop is running on Windows."
+  when: not podman_socket.stat.exists
+
 - name: Configure Podman connection to Podman Desktop
   become: true
   become_user: "{{ username }}"
+  when: podman_socket.stat.exists
   block:
     - name: Remove old podman configuration files
       file:
@@ -48,3 +61,19 @@
     - name: Set podman-desktop as default connection
       shell: podman system connection default podman-desktop
       changed_when: true
+
+    - name: Verify Podman connection works
+      shell: podman version
+      register: podman_version
+      failed_when: false
+      changed_when: false
+
+    - name: Display Podman connection status
+      debug:
+        msg: "Podman successfully connected to Podman Desktop"
+      when: podman_version.rc == 0
+
+    - name: Warning if Podman connection fails
+      debug:
+        msg: "WARNING: Podman connection test failed. Ensure Podman Desktop is running on Windows and the machine is started."
+      when: podman_version.rc != 0
