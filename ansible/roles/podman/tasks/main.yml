@@ -32,7 +32,7 @@
 
     - name: Remove any old/stale connections
       shell: |
-        for conn in $(podman system connection list --format '{{.Name}}' 2>/dev/null || true); do
+        for conn in $(podman system connection list --format '{{'{{.Name}}'}}' 2>/dev/null || true); do
           podman system connection remove "$conn" 2>/dev/null || true
         done
       changed_when: false
