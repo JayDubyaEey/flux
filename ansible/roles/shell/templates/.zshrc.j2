@@ -27,7 +27,12 @@ fi
 
 {% if install_podman | default(false) | bool %}
 # Podman Desktop connection (Windows → WSL)
-export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman.sock
+# Prefer rootless socket; fall back to rootful
+if [ -S /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock ]; then
+    export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
+elif [ -S /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock ]; then
+    export CONTAINER_HOST=unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
+fi
 
 # Docker backwards-compatibility aliases
 alias docker="podman"
