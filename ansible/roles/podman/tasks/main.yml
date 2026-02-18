@@ -36,53 +36,59 @@
     creates: "/home/{{ username }}/.local/bin/podman-compose"
 
 # ── 2. Socket Detection ─────────────────────────────────────────────────────
-# Podman Desktop versions may expose the socket at different paths.
-# We check both and use whichever exists (prefer podman.sock).
+# Per the official docs, Podman Desktop exposes two sockets in WSL:
+#   - Rootless: /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
+#   - Rootful:  /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
+# We check for both and configure whichever are available.
 
-- name: Check for Podman Desktop socket (primary path)
+- name: Check for rootless Podman socket
   stat:
-    path: /mnt/wsl/podman-sockets/podman.sock
-  register: podman_socket_primary
+    path: /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
+  register: podman_socket_rootless
 
-- name: Check for Podman Desktop socket (alternative path)
+- name: Check for rootful Podman socket
   stat:
-    path: /mnt/wsl/podman-sockets/podman-machine-default-api.sock
-  register: podman_socket_alt
+    path: /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
+  register: podman_socket_rootful
 
-- name: Set detected socket path
-  set_fact:
-    podman_socket_path: >-
-      {%- if podman_socket_primary.stat.exists -%}
-        /mnt/wsl/podman-sockets/podman.sock
-      {%- elif podman_socket_alt.stat.exists -%}
-        /mnt/wsl/podman-sockets/podman-machine-default-api.sock
-      {%- else -%}
-        none
-      {%- endif -%}
-
-- name: Verify detected socket is a valid socket file
-  shell: "test -S {{ podman_socket_path }}"
-  register: socket_valid
+- name: Verify rootless socket is valid
+  shell: test -S /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
+  register: rootless_socket_valid
   failed_when: false
   changed_when: false
-  when: podman_socket_path != 'none'
+  when: podman_socket_rootless.stat.exists
 
-- name: Set socket availability fact
+- name: Verify rootful socket is valid
+  shell: test -S /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
+  register: rootful_socket_valid
+  failed_when: false
+  changed_when: false
+  when: podman_socket_rootful.stat.exists
+
+- name: Set socket availability facts
   set_fact:
-    podman_socket_available: >-
-      {{ podman_socket_path != 'none' and
-         (socket_valid.rc | default(1)) == 0 }}
+    podman_rootless_available: >-
+      {{ podman_socket_rootless.stat.exists and
+         (rootless_socket_valid.rc | default(1)) == 0 }}
+    podman_rootful_available: >-
+      {{ podman_socket_rootful.stat.exists and
+         (rootful_socket_valid.rc | default(1)) == 0 }}
+    podman_any_socket_available: >-
+      {{ (podman_socket_rootless.stat.exists and
+          (rootless_socket_valid.rc | default(1)) == 0) or
+         (podman_socket_rootful.stat.exists and
+          (rootful_socket_valid.rc | default(1)) == 0) }}
 
 # ── 3. Warning if no socket found ───────────────────────────────────────────
 
 - name: Warning — Podman Desktop socket not found
   debug:
     msg: |
-      ⚠ Podman Desktop socket not found.
+      ⚠ Podman Desktop sockets not found.
 
       Checked:
-        - /mnt/wsl/podman-sockets/podman.sock
-        - /mnt/wsl/podman-sockets/podman-machine-default-api.sock
+        - /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock (rootless)
+        - /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock (rootful)
 
       Please ensure:
         1. Podman Desktop is installed and running on Windows
@@ -90,15 +96,20 @@
         3. WSL integration is enabled in Podman Desktop settings:
            Settings → Resources → Podman → ⋮ → Edit WSL instances
 
+      Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
+
       After fixing, re-run flux setup.
-  when: not podman_socket_available | bool
+  when: not podman_any_socket_available | bool
 
 # ── 4. Idempotent Connection Setup ──────────────────────────────────────────
+# Per the official docs, we add both rootless and rootful connections.
+# Rootless (podman-machine-default-user) is set as the default.
+# Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
 
-- name: Configure Podman connection to Podman Desktop
+- name: Configure Podman connections to Podman Desktop
   become: true
   become_user: "{{ username }}"
-  when: podman_socket_available | bool
+  when: podman_any_socket_available | bool
   block:
     - name: Ensure containers config directory exists
       file:
@@ -113,33 +124,83 @@
       changed_when: false
       failed_when: false
 
-    - name: Determine if podman-desktop connection needs updating
+    # ── Rootless connection ──────────────────────────────────────────────
+
+    - name: Check if rootless connection needs updating
       set_fact:
-        podman_connection_exists: >-
-          {{ 'podman-desktop' in (podman_connections.stdout | default('')) }}
-        podman_connection_correct: >-
-          {{ ('podman-desktop unix://' ~ podman_socket_path) in
-             (podman_connections.stdout | default('')) }}
+        rootless_conn_exists: >-
+          {{ 'podman-machine-default-user' in (podman_connections.stdout | default('')) }}
+        rootless_conn_correct: >-
+          {{ 'podman-machine-default-user unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock'
+             in (podman_connections.stdout | default('')) }}
+      when: podman_rootless_available | bool
 
-    - name: Remove stale podman-desktop connection
-      shell: podman system connection remove podman-desktop
-      when: podman_connection_exists | bool and not podman_connection_correct | bool
+    - name: Remove stale rootless connection
+      shell: podman system connection remove podman-machine-default-user
+      when:
+        - podman_rootless_available | bool
+        - rootless_conn_exists | default(false) | bool
+        - not (rootless_conn_correct | default(false) | bool)
       changed_when: true
       failed_when: false
 
-    - name: Add podman-desktop connection
-      shell: >
+    - name: Add rootless connection
+      shell: >-
         podman system connection add
-        podman-desktop
-        unix://{{ podman_socket_path }}
-      when: not podman_connection_correct | bool
+        podman-machine-default-user
+        unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
+      when:
+        - podman_rootless_available | bool
+        - not (rootless_conn_correct | default(false) | bool)
       changed_when: true
 
-    - name: Set podman-desktop as default connection
-      shell: podman system connection default podman-desktop
-      register: set_default_result
+    # ── Rootful connection ───────────────────────────────────────────────
+
+    - name: Check if rootful connection needs updating
+      set_fact:
+        rootful_conn_exists: >-
+          {{ 'podman-machine-default-root' in (podman_connections.stdout | default('')) }}
+        rootful_conn_correct: >-
+          {{ 'podman-machine-default-root unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock'
+             in (podman_connections.stdout | default('')) }}
+      when: podman_rootful_available | bool
+
+    - name: Remove stale rootful connection
+      shell: podman system connection remove podman-machine-default-root
+      when:
+        - podman_rootful_available | bool
+        - rootful_conn_exists | default(false) | bool
+        - not (rootful_conn_correct | default(false) | bool)
       changed_when: true
       failed_when: false
+
+    - name: Add rootful connection
+      shell: >-
+        podman system connection add
+        podman-machine-default-root
+        unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
+      when:
+        - podman_rootful_available | bool
+        - not (rootful_conn_correct | default(false) | bool)
+      changed_when: true
+
+    # ── Set default (prefer rootless) ────────────────────────────────────
+
+    - name: Set rootless as default connection
+      shell: podman system connection default podman-machine-default-user
+      when: podman_rootless_available | bool
+      changed_when: true
+      failed_when: false
+
+    - name: Set rootful as default connection (fallback)
+      shell: podman system connection default podman-machine-default-root
+      when:
+        - not (podman_rootless_available | bool)
+        - podman_rootful_available | bool
+      changed_when: true
+      failed_when: false
+
+    # ── Verify ───────────────────────────────────────────────────────────
 
     - name: Verify Podman connection works
       shell: timeout 5 podman version
@@ -149,7 +210,11 @@
 
     - name: Display Podman connection status
       debug:
-        msg: "✓ Podman successfully connected to Podman Desktop via {{ podman_socket_path }}"
+        msg: >
+          ✓ Podman connected to Podman Desktop.
+          Rootless: {{ podman_rootless_available | bool }},
+          Rootful: {{ podman_rootful_available | bool }}.
+          Default: {{ (podman_rootless_available | bool) | ternary('rootless (podman-machine-default-user)', 'rootful (podman-machine-default-root)') }}
       when: podman_version.rc == 0
 
     - name: Warning — Podman connection test failed
@@ -157,7 +222,6 @@
         msg: |
           ⚠ Podman connection test failed or timed out.
 
-          Socket detected at: {{ podman_socket_path }}
           This usually means the Podman machine is not running.
 
           To fix:
@@ -166,4 +230,6 @@
             3. Start the Podman machine
             4. Wait for "Running" status
             5. Re-run flux setup
+
+          Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
       when: podman_version.rc != 0
