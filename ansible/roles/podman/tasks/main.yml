@@ -21,16 +21,22 @@
   become: true
   become_user: "{{ username }}"
   block:
-    - name: Check if podman-desktop connection exists
-      shell: podman system connection list | grep -q '^podman-desktop'
-      register: connection_exists
+    - name: Remove old podman configuration files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/home/{{ username }}/.config/containers/containers.conf"
+        - "/home/{{ username }}/.config/containers/podman-connections.conf"
       failed_when: false
-      changed_when: false
 
-    - name: Remove existing podman-desktop connection
-      shell: podman system connection remove podman-desktop
-      when: connection_exists.rc == 0
-      changed_when: true
+    - name: Remove any old/stale connections
+      shell: |
+        for conn in $(podman system connection list --format '{{.Name}}' 2>/dev/null || true); do
+          podman system connection remove "$conn" 2>/dev/null || true
+        done
+      changed_when: false
+      failed_when: false
 
     - name: Add Podman Desktop connection
       shell: |
