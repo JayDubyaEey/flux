@@ -5,8 +5,6 @@
   gather_facts: true
 
   vars:
-    # Defaults — overridden by extra vars (JSON) from the Go CLI.
-    # Booleans are passed as real booleans from the CLI.
     username: "{{ ansible_user_id }}"
     email: ""
     git_name: "{{ username }}"
