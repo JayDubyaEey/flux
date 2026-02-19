@@ -8,38 +8,65 @@
 
 # ── 1. Package Installation ─────────────────────────────────────────────────
 
-- name: Install podman and podman-docker packages
-  apt:
-    name:
-      - podman
-      - podman-docker
-    state: present
-    update_cache: yes
-
-- name: Install pipx for isolated Python package installations
-  apt:
-    name: pipx
-    state: present
-
-- name: Ensure pipx path is set up for {{ username }}
-  shell: pipx ensurepath
-  become: true
-  become_user: "{{ username }}"
-  changed_when: false
+- name: Fetch latest Podman release version from GitHub
+  uri:
+    url: https://api.github.com/repos/containers/podman/releases/latest
+    return_content: yes
+  register: podman_release_info
   failed_when: false
 
-- name: Install podman-compose via pipx
-  shell: pipx install podman-compose
-  become: true
-  become_user: "{{ username }}"
-  args:
-    creates: "/home/{{ username }}/.local/bin/podman-compose"
+- name: Set Podman version from API response
+  set_fact:
+    podman_version: "{{ podman_release_info.json.tag_name }}"
+  when: podman_release_info is succeeded and podman_release_info.json.tag_name is defined
+
+- name: Fallback to hardcoded Podman version if API fails
+  set_fact:
+    podman_version: "v4.9.1"
+  when: podman_release_info is failed or podman_release_info.json.tag_name is not defined
+
+- name: Display target Podman version
+  debug:
+    msg: "Target Podman version: {{ podman_version }}"
+
+- name: Download podman-remote-static binary
+  get_url:
+    url: "https://github.com/containers/podman/releases/download/{{ podman_version }}/podman-remote-static-linux_amd64.tar.gz"
+    dest: /tmp/podman-remote-static-linux_amd64.tar.gz
+    mode: '0644'
+
+- name: Extract podman-remote-static to /usr/local
+  unarchive:
+    src: /tmp/podman-remote-static-linux_amd64.tar.gz
+    dest: /usr/local
+    remote_src: yes
+    creates: /usr/local/bin/podman-remote-static-linux_amd64
+
+- name: Detect user's default shell
+  shell: "getent passwd {{ username }} | cut -d: -f7"
+  register: user_shell
+  changed_when: false
+
+- name: Set shell rc file fact
+  set_fact:
+    shell_rc_file: "{{ '/home/' + username + '/.zshrc' if 'zsh' in user_shell.stdout else '/home/' + username + '/.bashrc' }}"
+
+- name: Add PATH and podman alias to shell rc file
+  blockinfile:
+    path: "{{ shell_rc_file }}"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Podman Remote"
+    block: |
+      export PATH="$PATH:/usr/local/bin"
+      alias podman='podman-remote-static-linux_amd64'
+    create: yes
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: '0644'
 
 # ── 2. Socket Detection ─────────────────────────────────────────────────────
-# Per the official docs, Podman Desktop exposes two sockets in WSL:
+# Per the official docs, Podman Desktop exposes a rootless socket in WSL:
 #   - Rootless: /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
-#   - Rootful:  /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
-# We check for both and configure whichever are available.
+# We assume rootless mode for security and simplicity.
 
 # NOTE: In WSL, sockets shared across distros via /mnt/wsl appear as regular
 # files to stat/test -S, but function correctly as sockets. We only check
@@ -50,50 +77,40 @@
     path: /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock
   register: podman_socket_rootless
 
-- name: Check for rootful Podman socket
-  stat:
-    path: /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock
-  register: podman_socket_rootful
-
-- name: Set socket availability facts
+- name: Set socket availability fact
   set_fact:
-    podman_rootless_available: "{{ podman_socket_rootless.stat.exists }}"
-    podman_rootful_available: "{{ podman_socket_rootful.stat.exists }}"
-    podman_any_socket_available: >-
-      {{ podman_socket_rootless.stat.exists or
-         podman_socket_rootful.stat.exists }}
+    podman_socket_available: "{{ podman_socket_rootless.stat.exists }}"
 
 # ── 3. Warning if no socket found ───────────────────────────────────────────
 
 - name: Warning — Podman Desktop socket not found
   debug:
     msg: |
-      ⚠ Podman Desktop sockets not found.
+      ⚠ Podman Desktop rootless socket not found.
 
       Checked:
         - /mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock (rootless)
-        - /mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock (rootful)
 
       Please ensure:
         1. Podman Desktop is installed and running on Windows
         2. The Podman machine is STARTED (not just installed)
         3. WSL integration is enabled in Podman Desktop settings:
            Settings → Resources → Podman → ⋮ → Edit WSL instances
+        4. Rootless mode is enabled in Podman Desktop
 
       Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
 
       After fixing, re-run flux setup.
-  when: not podman_any_socket_available | bool
+  when: not podman_socket_available | bool
 
 # ── 4. Idempotent Connection Setup ──────────────────────────────────────────
-# Per the official docs, we add both rootless and rootful connections.
-# Rootless (podman-machine-default-user) is set as the default.
+# Configure rootless connection to Podman Desktop.
 # Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
 
-- name: Configure Podman connections to Podman Desktop
+- name: Configure Podman rootless connection to Podman Desktop
   become: true
   become_user: "{{ username }}"
-  when: podman_any_socket_available | bool
+  when: podman_socket_available | bool
   block:
     - name: Ensure containers config directory exists
       file:
@@ -111,47 +128,17 @@
 
     - name: Remove existing rootless connection
       shell: podman system connection remove podman-machine-default-user
-      when:
-        - podman_rootless_available | bool
-        - "'podman-machine-default-user' in (podman_connections.stdout | default(''))"
+      when: "'podman-machine-default-user' in (podman_connections.stdout | default(''))"
       changed_when: true
       failed_when: false
 
     - name: Add rootless connection
       shell: "podman system connection add podman-machine-default-user unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-user.sock"
-      when: podman_rootless_available | bool
       changed_when: true
       failed_when: false
-
-    # ── Rootful connection ───────────────────────────────────────────────
-
-    - name: Remove existing rootful connection
-      shell: podman system connection remove podman-machine-default-root
-      when:
-        - podman_rootful_available | bool
-        - "'podman-machine-default-root' in (podman_connections.stdout | default(''))"
-      changed_when: true
-      failed_when: false
-
-    - name: Add rootful connection
-      shell: "podman system connection add podman-machine-default-root unix:///mnt/wsl/podman-sockets/podman-machine-default/podman-root.sock"
-      when: podman_rootful_available | bool
-      changed_when: true
-      failed_when: false
-
-    # ── Set default (prefer rootless) ────────────────────────────────────
 
     - name: Set rootless as default connection
       shell: podman system connection default podman-machine-default-user
-      when: podman_rootless_available | bool
-      changed_when: true
-      failed_when: false
-
-    - name: Set rootful as default connection (fallback)
-      shell: podman system connection default podman-machine-default-root
-      when:
-        - not (podman_rootless_available | bool)
-        - podman_rootful_available | bool
       changed_when: true
       failed_when: false
 
@@ -166,10 +153,8 @@
     - name: Display Podman connection status
       debug:
         msg: >
-          ✓ Podman connected to Podman Desktop.
-          Rootless: {{ podman_rootless_available | bool }},
-          Rootful: {{ podman_rootful_available | bool }}.
-          Default: {{ (podman_rootless_available | bool) | ternary('rootless (podman-machine-default-user)', 'rootful (podman-machine-default-root)') }}
+          ✓ Podman connected to Podman Desktop in rootless mode.
+          Connection: podman-machine-default-user
       when: podman_version.rc == 0
 
     - name: Warning — Podman connection test failed
@@ -188,3 +173,51 @@
 
           Ref: https://podman-desktop.io/docs/podman/accessing-podman-from-another-wsl-instance
       when: podman_version.rc != 0
+
+# ── 5. podman-compose Installation ──────────────────────────────────────────
+# Install podman-compose for Docker Compose compatibility
+# Dependencies (Python3, PyYAML, python-dotenv) should be installed via python role
+
+- name: Check for Python3
+  command: python3 --version
+  register: python3_check
+  failed_when: false
+  changed_when: false
+
+- name: Check for PyYAML
+  command: python3 -c "import yaml"
+  register: pyyaml_check
+  failed_when: false
+  changed_when: false
+
+- name: Check for python-dotenv
+  command: python3 -c "import dotenv"
+  register: dotenv_check
+  failed_when: false
+  changed_when: false
+
+- name: Fail if podman-compose dependencies are missing
+  fail:
+    msg: |
+      ⚠ podman-compose dependencies are missing.
+
+      Required dependencies:
+        - Python3: {{ 'OK' if python3_check.rc == 0 else 'MISSING' }}
+        - PyYAML: {{ 'OK' if pyyaml_check.rc == 0 else 'MISSING' }}
+        - python-dotenv: {{ 'OK' if dotenv_check.rc == 0 else 'MISSING' }}
+
+      To fix this:
+        1. Ensure the python role is enabled in your playbook
+        2. Make sure install_python is set to true
+        3. The python role should run BEFORE the podman role
+        4. Re-run flux setup
+
+      The python role will install these dependencies automatically.
+  when: python3_check.rc != 0 or pyyaml_check.rc != 0 or dotenv_check.rc != 0
+
+- name: Install podman-compose via pip
+  pip:
+    name: podman-compose
+    state: present
+    executable: pip3
+  when: python3_check.rc == 0 and pyyaml_check.rc == 0 and dotenv_check.rc == 0

@@ -38,25 +38,27 @@
     - role: shell
       tags: [shell]
 
-    - role: podman
-      tags: [podman]
-      when: install_podman | bool
-
-    - role: golang
-      tags: [golang]
-      when: install_go | bool
-
+    # Language installations first
     - role: bun
       tags: [bun]
       when: install_bun | bool
+
+    - role: python
+      tags: [python]
+      when: install_python | bool
 
     - role: dotnet
       tags: [dotnet]
       when: install_dotnet | bool
 
-    - role: python
-      tags: [python]
-      when: install_python | bool
+    - role: golang
+      tags: [golang]
+      when: install_go | bool
+
+    # Other tools
+    - role: podman
+      tags: [podman]
+      when: install_podman | bool
 
     - role: k9s
       tags: [k9s]

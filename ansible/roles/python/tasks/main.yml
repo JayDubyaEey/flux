@@ -63,3 +63,11 @@
   shell: "python{{ python_version }} -m ensurepip --upgrade || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python{{ python_version }}"
   args:
     creates: "/usr/bin/pip{{ python_version }}"
+
+- name: Install Python packages (PyYAML, python-dotenv)
+  pip:
+    name:
+      - PyYAML
+      - python-dotenv
+    state: present
+    executable: "pip{{ python_version }}"
